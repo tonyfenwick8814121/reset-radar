@@ -29,6 +29,7 @@ swift test
 - [实现规格](docs/IMPLEMENTATION_SPEC.md)：数据结构、时间解析、调度、文件布局。
 - [验收清单](docs/ACCEPTANCE.md)：可执行的场景和预期结果。
 - [来源核查](docs/SOURCES.md)：2026-09-09 核查结果与尚未验证的条件。
+- [交付验证](docs/DELIVERY_REPORT.md)：原生测试、真机操作、发布包和已知边界。
 - [交互原型](design/prototype.html)：直接用浏览器打开，无需安装依赖。
 
 开发阶段推荐 **Sol / high**；窗口跨桌面、时间歧义和提醒状态逻辑有疑难时，使用 **Astra / high** 定点解决。日常运行不调用任何模型，不占 ChatGPT/Codex 对话额度。
