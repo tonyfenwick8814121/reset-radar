@@ -124,6 +124,7 @@ final class MonitorModel: ObservableObject {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
+        let eventsBeforeCheck = events
 
         for source in FeedSource.defaults {
             let previous = status(for: source)
@@ -151,16 +152,10 @@ final class MonitorModel: ObservableObject {
                 guard !batch.notModified else { continue }
                 for item in batch.items {
                     guard let candidate = classifier.classify(item, source: source, fetchedAt: batch.fetchedAt) else { continue }
-                    let linkedTerminal = (candidate.state == .announcedComplete || candidate.state == .cancelled)
-                        ? associateTerminalAnnouncement(candidate) : nil
-                    let outcome = reconciler.merge(candidate, into: &events)
-                    if let linkedTerminal {
-                        onNewActionableEvent?(linkedTerminal)
-                    } else if outcome != .unchanged,
-                       let stored = events.first(where: { $0.id == candidate.id }),
-                       isActionable(stored, now: Date()) {
-                        onNewActionableEvent?(stored)
+                    if candidate.state == .announcedComplete || candidate.state == .cancelled {
+                        _ = associateTerminalAnnouncement(candidate)
                     }
+                    _ = reconciler.merge(candidate, into: &events)
                 }
             } catch {
                 updateStatus(source) { status in
@@ -182,6 +177,18 @@ final class MonitorModel: ObservableObject {
         }
         _ = Self.advanceLifecycle(&events, now: Date())
         events = events.sorted { $0.updatedAt > $1.updatedAt }
+        // Decide only after every source is merged: a later item may cancel an earlier one.
+        let newOpportunities = events.filter { event in
+            guard isActionable(event, now: Date()) else { return false }
+            guard let previous = eventsBeforeCheck.first(where: { $0.id == event.id }) else { return true }
+            return !isActionable(previous, now: Date()) ||
+                previous.kind != event.kind || previous.timeMeaning != event.timeMeaning ||
+                previous.targetAt != event.targetAt || previous.expiresAt != event.expiresAt ||
+                previous.audience != event.audience || Set(previous.products) != Set(event.products)
+        }
+        if let opportunity = Self.selectActiveEvent(newOpportunities, now: Date()) {
+            onNewActionableEvent?(opportunity)
+        }
         do {
             try await store.saveEvents(events)
             try await store.saveStatuses(statuses)
@@ -276,7 +283,7 @@ final class MonitorModel: ObservableObject {
             updatedAt: now
         )
         events.insert(event, at: 0)
-        onNewActionableEvent?(event)
+        if isActionable(event, now: now) { onNewActionableEvent?(event) }
         let snapshot = events
         let currentPreferences = preferences
         Task {
@@ -401,14 +408,16 @@ final class MonitorModel: ObservableObject {
 
     private func isActionable(_ event: ResetEvent, now: Date) -> Bool {
         if event.kind == .automaticReset {
-            return event.targetAt.map { $0 > now } == true || event.state == .cancelled || event.state == .announcedComplete
+            return event.state == .scheduled && event.precision == .exact &&
+                event.targetAt.map { $0 > now } == true
         }
         if event.kind == .bankedResetGrant {
             guard event.state == .available else { return false }
+            guard event.windowStart.map({ $0 <= now }) ?? true else { return false }
             if let expiry = event.expiresAt { return expiry > now }
             return event.bestEvidence?.publishedAt.map { $0 >= now.addingTimeInterval(-86_400) } == true
         }
-        return event.kind == .lead
+        return false
     }
 
     private func associateTerminalAnnouncement(_ announcement: ResetEvent) -> ResetEvent? {

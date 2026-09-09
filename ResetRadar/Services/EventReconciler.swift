@@ -17,6 +17,11 @@ struct EventReconciler {
         for evidence in incoming.evidence where !existingEvidence.contains(Self.evidenceIdentity(evidence)) {
             stored.evidence.append(evidence)
         }
+        // A feed replay must not resurrect an opportunity the user already handled.
+        if [.used, .dismissed, .announcedComplete, .cancelled, .archived].contains(stored.state) {
+            events[index] = stored
+            return .unchanged
+        }
         let existingSources = Set(events[index].evidence.map(\.sourceID))
         let incomingSources = Set(incoming.evidence.map(\.sourceID))
         let unresolvedCrossSourceConflict = stored.state == .unresolved &&

@@ -4,6 +4,93 @@ import Foundation
 
 @MainActor
 final class MonitorModelTests: XCTestCase {
+    func testRoutineChecksAndNonOpportunitiesNeverTriggerDiscovery() async {
+        for mode in [MonitorURLProtocol.Mode.empty, .serverError, .complete, .lead, .cancelled, .expiredGrant, .futureGrant] {
+            MonitorURLProtocol.mode = mode
+            let model = makeModel()
+            var discoveries = 0
+            model.onNewActionableEvent = { _ in discoveries += 1 }
+            await model.refresh()
+            await model.refresh()
+            XCTAssertEqual(discoveries, 0, "Unexpected discovery for \(mode)")
+        }
+    }
+
+    func testSameOpportunityDoesNotAlertOnRepeatedChecks() async {
+        for mode in [MonitorURLProtocol.Mode.grant, .automatic] {
+            MonitorURLProtocol.mode = mode
+            let model = makeModel()
+            var discoveries = 0
+            model.onNewActionableEvent = { _ in discoveries += 1 }
+            await model.refresh()
+            await model.refresh()
+            XCTAssertEqual(discoveries, 1)
+        }
+    }
+
+    func testOpportunityCancelledInSameBatchNeverTriggersDiscovery() async {
+        MonitorURLProtocol.mode = .mixed
+        let model = makeModel()
+        var discoveries = 0
+        model.onNewActionableEvent = { _ in discoveries += 1 }
+        await model.refresh()
+        XCTAssertEqual(discoveries, 0)
+        XCTAssertNil(model.activeEvent)
+    }
+
+    func testCorrectedFutureTimeAlertsOnceThenStaysSilent() async {
+        MonitorURLProtocol.mode = .automatic
+        let model = makeModel()
+        var discoveries = 0
+        model.onNewActionableEvent = { _ in discoveries += 1 }
+        await model.refresh()
+        MonitorURLProtocol.mode = .revised
+        await model.refresh()
+        await model.refresh()
+        XCTAssertEqual(discoveries, 2)
+    }
+
+    func testPersistedOpportunityDoesNotRepeatDiscoveryOnRestart() async throws {
+        MonitorURLProtocol.mode = .automatic
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LocalStore(directory: directory)
+        let original = MonitorModel(store: store, client: makeClient(), scheduler: RecordingScheduler())
+        await original.refresh()
+        let restarted = MonitorModel(store: store, client: makeClient(), scheduler: RecordingScheduler())
+        var discoveries = 0
+        restarted.onNewActionableEvent = { _ in discoveries += 1 }
+        await restarted.start().value
+        await restarted.refresh()
+        restarted.stop()
+        XCTAssertNotNil(restarted.activeEvent)
+        XCTAssertEqual(discoveries, 0)
+    }
+
+    func testHandledOpportunityStaysSilentAfterRefresh() async throws {
+        for state in [EventState.used, .dismissed, .announcedComplete] {
+            MonitorURLProtocol.mode = state == .announcedComplete ? .automatic : .grant
+            let model = makeModel()
+            await model.refresh()
+            let id = try XCTUnwrap(model.activeEvent?.id)
+            model.markEvent(id, as: state)
+            var discoveries = 0
+            model.onNewActionableEvent = { _ in discoveries += 1 }
+            await model.refresh()
+            XCTAssertEqual(discoveries, 0)
+            XCTAssertEqual(model.events.first { $0.id == id }?.state, state)
+            XCTAssertNil(model.activeEvent)
+        }
+    }
+
+    func testExpiredManualEntryNeverTriggersDiscovery() {
+        let model = makeModel()
+        var discoveries = 0
+        model.onNewActionableEvent = { _ in discoveries += 1 }
+        model.addManualEvent(ManualEntryDraft(text: "expired", kind: .bankedResetGrant, date: Date().addingTimeInterval(-60), product: "codex", audience: "unknown"))
+        XCTAssertEqual(discoveries, 0)
+    }
+
     func testFreshUndatedGrantTriggersDiscovery() async {
         MonitorURLProtocol.mode = .grant
         let scheduler = RecordingScheduler()
@@ -96,9 +183,10 @@ actor RecordingScheduler: ReminderScheduling {
 }
 
 private final class MonitorURLProtocol: URLProtocol {
-    enum Mode { case empty, grant, rateLimit, serverError }
+    enum Mode { case empty, grant, rateLimit, serverError, complete, lead, cancelled, automatic, revised, mixed, expiredGrant, futureGrant }
     static var mode: Mode = .empty
     static var requestCount = 0
+    static let futureTarget = Date().addingTimeInterval(7200)
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -112,7 +200,26 @@ private final class MonitorURLProtocol: URLProtocol {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
         let published = formatter.string(from: Date())
-        let item = Self.mode == .grant ? "<item><guid>fresh-grant</guid><title>Codex reset news</title><description>Some users receive a banked reset</description><pubDate>\(published)</pubDate></item>" : ""
+        let future = ISO8601DateFormatter().string(from: Self.futureTarget)
+        let past = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-3600))
+        let automatic = "Codex limits will reset at \(future)"
+        let cancelled = "Codex reset at \(future) cancelled; will not happen"
+        let bodies: [String]
+        switch Self.mode {
+        case .grant: bodies = ["Some users receive a banked reset"]
+        case .complete: bodies = ["Codex limits already reset"]
+        case .lead: bodies = ["Codex limits will reset tomorrow"]
+        case .cancelled: bodies = [cancelled]
+        case .automatic: bodies = [automatic]
+        case .revised: bodies = ["Codex limits will reset at \(ISO8601DateFormatter().string(from: Self.futureTarget.addingTimeInterval(3600)))"]
+        case .mixed: bodies = [automatic, cancelled]
+        case .expiredGrant: bodies = ["Codex banked reset expires \(past)"]
+        case .futureGrant: bodies = ["Codex banked reset will arrive \(future)"]
+        default: bodies = []
+        }
+        let item = bodies.map { body in
+            "<item><guid>fresh-grant</guid><title>Codex reset news</title><description>\(body)</description><pubDate>\(published)</pubDate></item>"
+        }.joined()
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data("<rss><channel>\(item)</channel></rss>".utf8))
         client?.urlProtocolDidFinishLoading(self)

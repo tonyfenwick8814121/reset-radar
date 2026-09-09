@@ -32,7 +32,8 @@ actor ReminderScheduler: ReminderScheduling {
             let content = UNMutableNotificationContent()
             content.title = preferences.locale == .zhHans ? "归零 · Reset Radar" : "Reset Radar"
             content.body = body(event: reminder.event, offset: reminder.offset, locale: preferences.locale)
-            if preferences.audioEnabled { content.sound = .default }
+            // Threshold and due notifications are visual only; discovery owns the chime.
+            content.sound = nil
             let interval = max(1, reminder.fireDate.timeIntervalSince(now))
             let request = UNNotificationRequest(
                 identifier: reminder.identifier,
@@ -60,7 +61,7 @@ actor ReminderScheduler: ReminderScheduling {
             guard let target = fireTarget, target > now else { return [] }
             return ReminderPlanner.plan(target: target, offsets: preferences.reminderOffsets, now: now).map { reminder in
                 ScheduledReminder(
-                    identifier: "\(identifierPrefix)\(event.id).r\(event.revision).\(Int(reminder.offset)).\(preferences.locale.rawValue).s\(preferences.audioEnabled ? 1 : 0)",
+                    identifier: "\(identifierPrefix)\(event.id).r\(event.revision).\(Int(reminder.offset)).\(preferences.locale.rawValue).silent-v2",
                     event: event,
                     offset: reminder.offset,
                     fireDate: reminder.fireDate
