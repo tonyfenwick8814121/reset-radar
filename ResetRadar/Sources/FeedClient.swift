@@ -20,7 +20,9 @@ actor FeedClient {
         if http.statusCode == 304 {
             return FeedBatch(items: [], fetchedAt: Date(), etag: previous?.etag, lastModified: previous?.lastModified, notModified: true)
         }
-        guard (200..<300).contains(http.statusCode) else { throw FeedError.http(http.statusCode) }
+        guard (200..<300).contains(http.statusCode) else {
+            throw FeedError.http(http.statusCode, retryAfter: Self.retryDelay(http.value(forHTTPHeaderField: "Retry-After")))
+        }
         guard data.count <= maximumBytes else { throw FeedError.oversized }
         let items = try XMLFeedParser().parse(data)
         return FeedBatch(
@@ -30,5 +32,15 @@ actor FeedClient {
             lastModified: http.value(forHTTPHeaderField: "Last-Modified"),
             notModified: false
         )
+    }
+
+    private static func retryDelay(_ value: String?) -> TimeInterval? {
+        guard let value else { return nil }
+        if let seconds = TimeInterval(value.trimmingCharacters(in: .whitespacesAndNewlines)) { return max(0, seconds) }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter.date(from: value).map { max(0, $0.timeIntervalSinceNow) }
     }
 }

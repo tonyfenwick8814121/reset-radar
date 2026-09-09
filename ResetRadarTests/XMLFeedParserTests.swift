@@ -20,11 +20,23 @@ final class XMLFeedParserTests: XCTestCase {
         let item = try XCTUnwrap(XMLFeedParser().parse(Data(xml.utf8)).first)
         XCTAssertEqual(item.id, "a-1")
         XCTAssertEqual(item.url?.absoluteString, "https://example.com/a")
-        XCTAssertNotNil(item.publishedAt)
+        XCTAssertNil(item.publishedAt)
+        XCTAssertNotNil(item.updatedAt)
     }
 
     func testRejectsHTMLLoginPage() {
         let html = "<html><body><form>Sign in</form></body></html>"
         XCTAssertThrowsError(try XMLFeedParser().parse(Data(html.utf8)))
+    }
+
+    func testParsesFractionalAtomDate() throws {
+        let xml = "<feed><entry><id>a</id><title>Codex reset</title><updated>2026-09-09T06:30:00.000Z</updated><summary>Done</summary></entry></feed>"
+        XCTAssertNotNil(try XMLFeedParser().parse(Data(xml.utf8)).first?.updatedAt)
+    }
+
+    func testPreservesNestedAtomText() throws {
+        let xml = "<feed><entry><id>a</id><title>Codex</title><content type='xhtml'><div>Codex reset <b>tomorrow</b> at 2pm PT</div></content></entry></feed>"
+        let body = try XCTUnwrap(XMLFeedParser().parse(Data(xml.utf8)).first?.body)
+        XCTAssertTrue(body.contains("Codex reset tomorrow at 2pm PT"), "Body was: \(body)")
     }
 }

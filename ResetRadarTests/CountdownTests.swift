@@ -6,7 +6,11 @@ final class CountdownTests: XCTestCase {
         XCTAssertEqual(CountdownView.remaining(0.2), "00:00:01")
         XCTAssertEqual(CountdownView.remaining(-1), "00:00:00")
         XCTAssertEqual(CountdownView.remaining(3_661), "01:01:01")
-        XCTAssertEqual(CountdownView.remaining(360_000), "4天 04:00:00")
+        XCTAssertEqual(CountdownView.remaining(86_400), "24:00:00")
+        XCTAssertEqual(CountdownView.remaining(359_999), "99:59:59")
+        XCTAssertEqual(CountdownView.remaining(360_000), "100:00:00")
+        XCTAssertEqual(CountdownView.remaining(604_800), "168:00:00")
+        XCTAssertEqual(CountdownView.remaining(3_596_400), "999:00:00")
     }
 
     func testFormattingDoesNotMutateDate() {

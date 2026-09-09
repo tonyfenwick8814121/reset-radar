@@ -17,11 +17,15 @@ struct MiniView: View {
                     Spacer()
                     localeButton("中", .zhHans)
                     localeButton("EN", .en)
-                    Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }.buttonStyle(.plain)
+                    Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                        .buttonStyle(.plain).accessibilityLabel(model.preferences.locale == .zhHans ? "展开主窗口" : "Expand main window")
                     Button(action: onHide) { Image(systemName: "xmark") }.buttonStyle(.plain)
+                        .accessibilityLabel(model.preferences.locale == .zhHans ? "隐藏" : "Hide")
                 }.foregroundStyle(.secondary)
+                Text(statusText).font(.system(size: 9, weight: .bold, design: .rounded)).foregroundStyle(accent).lineLimit(1)
                 Text(countdown(now: context.date))
                     .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+                    .minimumScaleFactor(0.7).lineLimit(1)
                 Text(targetText).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
             }
             .padding(16)
@@ -31,6 +35,8 @@ struct MiniView: View {
             .overlay(RoundedRectangle(cornerRadius: 23, style: .continuous).stroke(.white.opacity(0.18)))
             .shadow(color: accent.opacity(0.18), radius: 24, y: 10)
             .padding(10)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2, perform: onExpand)
         }
     }
 
@@ -46,15 +52,29 @@ struct MiniView: View {
     }
 
     private func countdown(now: Date) -> String {
-        guard let target = model.activeEvent?.targetAt else { return "––:––:––" }
+        guard let target = model.activeEvent?.countdownAt else { return "––:––:––" }
         return CountdownView.remaining(target.timeIntervalSince(now))
     }
 
     private var targetText: String {
-        guard let target = model.activeEvent?.targetAt else {
+        guard let target = model.activeEvent?.countdownAt else {
             return Copy.text(.monitoring, model.preferences.locale)
         }
-        return CountdownView.format(target, zoneID: model.preferences.displayTimeZone, locale: model.preferences.locale)
+        let prefix = model.activeEvent?.kind == .bankedResetGrant
+            ? (model.preferences.locale == .zhHans ? "失效" : "Expires")
+            : (model.preferences.locale == .zhHans ? "预计重置" : "Expected")
+        return "\(prefix) · \(CountdownView.format(target, zoneID: model.preferences.displayTimeZone, locale: model.preferences.locale))"
+    }
+
+    private var statusText: String {
+        guard let event = model.activeEvent else { return Copy.text(.noAnnouncement, model.preferences.locale) }
+        if event.kind == .bankedResetGrant {
+            return model.preferences.locale == .zhHans ? "手动重置机会" : "Manual reset opportunity"
+        }
+        if event.state == .dueUnconfirmed || event.targetAt.map({ $0 <= Date() }) == true {
+            return model.preferences.locale == .zhHans ? "到点 · 等待确认" : "Due · Awaiting confirmation"
+        }
+        return Copy.text(.announced, model.preferences.locale)
     }
 
     private var accent: Color {

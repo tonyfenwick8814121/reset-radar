@@ -11,26 +11,65 @@ struct AnnouncementClassifier {
         let productWords = lower.contains("chatgpt") || lower.contains("codex") || lower.contains("usage limit") || lower.contains("weekly limit")
         guard resetWords && productWords else { return nil }
 
-        let isGrant = lower.contains("banked reset") || lower.contains("reset grant") || lower.contains("重置机会")
+        let grantMarkers = ["banked reset", "reset grant", "reset credit", "reset opportunity", "manual reset", "one-time reset", "重置机会", "手动重置"]
+        let isGrant = grantMarkers.contains { lower.contains($0) }
+        let expiryMarkers = ["expires", "expiry", "valid until", "use by", "deadline", "失效", "到期"]
+        let isGrantExpiry = isGrant && expiryMarkers.contains { lower.contains($0) }
         let forwardMarkers = [" will ", "lands ", "landing ", "tomorrow", "later today", "end of day", "planned", "upcoming", "next hour"]
         let isForwardLooking = forwardMarkers.contains { lower.contains($0) }
         let completeMarkers = ["it is done", "already reset", "returned to 100%", "back to 100%", "reset propagated", "limits reset for", "usage reset for"]
-        let isComplete = source.id == "codex-reset" || (!isForwardLooking && completeMarkers.contains { lower.contains($0) })
+        let cancelMarkers = ["cancelled", "canceled", "will not happen", "called off", "no longer planned", "预告取消", "不会重置"]
+        let uncertaintyMarkers = ["probability", "chance of", "forecast", "prediction", "rumor", "rumour", "maybe", "likely", "unlikely", "joke", "no reset is planned", "可能性", "预测", "传闻"]
+        let isCancelled = cancelMarkers.contains { lower.contains($0) }
+        let isUncertain = uncertaintyMarkers.contains { lower.contains($0) }
+        let isComplete = !isForwardLooking && !isCancelled && !isUncertain && completeMarkers.contains { lower.contains($0) }
         let resolution = resolver.resolve(combined, publishedAt: item.publishedAt, verifiedContextZone: inferredContextZone(lower))
-        let target: Date?
+        var target: Date?
+        var windowStart: Date?
+        var expiresAt: Date?
         let state: EventState
         let precision: TimePrecision
-        switch resolution {
-        case .exact(let date):
-            target = date
-            state = date > fetchedAt ? .scheduled : .dueUnconfirmed
-            precision = .exact
-        case .unresolved:
+        let timeMeaning: TimeMeaning
+        if isCancelled {
             target = nil
-            state = isComplete ? .announcedComplete : .unresolved
+            state = .cancelled
             precision = .unknown
+            timeMeaning = isGrant ? (isGrantExpiry ? .grantExpiry : .grantAvailability) : .automaticReset
+        } else if isUncertain {
+            target = nil
+            state = .unresolved
+            precision = .unknown
+            timeMeaning = .unknown
+        } else if isComplete {
+            target = nil
+            state = .announcedComplete
+            precision = .unknown
+            timeMeaning = .automaticReset
+        } else if isGrant {
+            target = nil
+            timeMeaning = isGrantExpiry ? .grantExpiry : .grantAvailability
+            if case .exact(let date) = resolution {
+                if isGrantExpiry { expiresAt = date }
+                else { windowStart = date }
+                precision = .exact
+            } else {
+                precision = .unknown
+            }
+            state = expiresAt.map { $0 <= fetchedAt } == true ? .expired : .available
+        } else {
+            timeMeaning = .automaticReset
+            switch resolution {
+            case .exact(let date):
+                target = date
+                state = date > fetchedAt ? .scheduled : .dueUnconfirmed
+                precision = .exact
+            case .unresolved:
+                target = nil
+                state = isForwardLooking ? .unresolved : .unresolved
+                precision = .unknown
+            }
         }
-        let kind: ResetKind = isGrant ? .bankedResetGrant : (isForwardLooking && target == nil ? .lead : .automaticReset)
+        let kind: ResetKind = isGrant ? .bankedResetGrant : (isForwardLooking && target == nil && !isCancelled && !isUncertain ? .lead : .automaticReset)
         let hash = SHA256.hash(data: Data(combined.utf8)).map { String(format: "%02x", $0) }.joined()
         let originalURL = originalPostURL(in: combined)
         let canonical = canonicalID(item, originalURL: originalURL)
@@ -39,7 +78,7 @@ struct AnnouncementClassifier {
             itemID: item.id,
             sourceKind: source.kind,
             url: originalURL ?? item.url,
-            publishedAt: item.publishedAt,
+            publishedAt: item.freshnessDate,
             fetchedAt: fetchedAt,
             excerpt: String(combined.prefix(280)),
             contentHash: hash
@@ -48,15 +87,16 @@ struct AnnouncementClassifier {
             id: canonical,
             revision: 1,
             kind: kind,
+            timeMeaning: timeMeaning,
             state: state,
             precision: precision,
             title: isGrant ? "发现重置机会" : "额度重置预告",
             titleEN: isGrant ? "Reset opportunity" : "Quota reset announced",
             targetAt: target,
-            windowStart: nil,
+            windowStart: windowStart,
             windowEnd: nil,
-            expiresAt: nil,
-            products: lower.contains("codex") ? ["codex"] : ["chatgpt"],
+            expiresAt: expiresAt,
+            products: lower.contains("chatgpt work") ? ["chatgpt-work"] : (lower.contains("codex") ? ["codex"] : ["chatgpt"]),
             audience: lower.contains("all users") ? "all" : ((isGrant && lower.contains("some ")) || lower.contains("some users") || lower.contains("500k") ? "partial" : "unknown"),
             evidence: [evidence],
             firstSeenAt: fetchedAt,

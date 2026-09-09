@@ -11,17 +11,29 @@ struct TimeResolver {
     private let losAngeles = TimeZone(identifier: "America/Los_Angeles")!
 
     func resolve(_ text: String, publishedAt: Date? = nil, verifiedContextZone: String? = nil) -> Resolution {
+        if let result = resolveISO8601(text) { return result }
         if let result = resolveNamedDate(text, verifiedContextZone: verifiedContextZone) { return result }
         if let result = resolveTomorrow(text, publishedAt: publishedAt, verifiedContextZone: verifiedContextZone) { return result }
         if let result = resolveIANADate(text) { return result }
         return .unresolved("No unambiguous date, time, and zone")
     }
 
+    private func resolveISO8601(_ text: String) -> Resolution? {
+        let pattern = #"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})"#
+        guard let match = captures(pattern, in: text)?.first else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let standard = ISO8601DateFormatter()
+        if let date = fractional.date(from: match) ?? standard.date(from: match) { return .exact(date) }
+        return .unresolved("Invalid ISO 8601 timestamp")
+    }
+
     private func resolveNamedDate(_ text: String, verifiedContextZone: String?) -> Resolution? {
         let pattern = #"(?i)(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s*(\d{4})\s+at\s+(\d{1,2}):(\d{2})\s+(PT|PST|PDT)"#
         guard let values = captures(pattern, in: text), values.count == 7,
               let month = monthNumber(values[1]), let day = Int(values[2]), let year = Int(values[3]),
-              let hour = Int(values[4]), let minute = Int(values[5]) else { return nil }
+              let hour = Int(values[4]), let minute = Int(values[5]),
+              (0...23).contains(hour), (0...59).contains(minute) else { return nil }
         let abbreviation = values[6].uppercased()
         if abbreviation == "PST", verifiedContextZone == losAngeles.identifier {
             let candidates = matchingInstants(year: year, month: month, day: day, hour: hour, minute: minute, zone: losAngeles)
@@ -43,8 +55,9 @@ struct TimeResolver {
         guard let publishedAt, let verifiedContextZone, let zone = TimeZone(identifier: verifiedContextZone) else {
             return .unresolved("Relative date lacks a verified source time zone")
         }
-        guard var hour = Int(values[1]) else { return .unresolved("Invalid hour") }
+        guard var hour = Int(values[1]), (1...12).contains(hour) else { return .unresolved("Invalid hour") }
         let minute = values.count > 2 ? (Int(values[2]) ?? 0) : 0
+        guard (0...59).contains(minute) else { return .unresolved("Invalid minute") }
         let meridiem = values[3].lowercased()
         if meridiem == "pm" && hour < 12 { hour += 12 }
         if meridiem == "am" && hour == 12 { hour = 0 }
@@ -63,7 +76,9 @@ struct TimeResolver {
         let pattern = #"(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})\s+([A-Za-z_]+/[A-Za-z_]+)"#
         guard let values = captures(pattern, in: text), values.count == 7,
               let year = Int(values[1]), let month = Int(values[2]), let day = Int(values[3]),
-              let hour = Int(values[4]), let minute = Int(values[5]), let zone = TimeZone(identifier: values[6]) else { return nil }
+              let hour = Int(values[4]), let minute = Int(values[5]),
+              (0...23).contains(hour), (0...59).contains(minute),
+              let zone = TimeZone(identifier: values[6]) else { return nil }
         let candidates = matchingInstants(year: year, month: month, day: day, hour: hour, minute: minute, zone: zone)
         return candidates.count == 1 ? .exact(candidates[0]) : .unresolved("Local time is missing or repeated")
     }
@@ -74,7 +89,7 @@ struct TimeResolver {
         guard let nominalUTC = utcCalendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour, minute: minute)) else { return [] }
         var localCalendar = Calendar(identifier: .gregorian)
         localCalendar.timeZone = zone
-        return stride(from: -16 * 60, through: 16 * 60, by: 30).compactMap { offset in
+        return stride(from: -16 * 60, through: 16 * 60, by: 15).compactMap { offset in
             let candidate = nominalUTC.addingTimeInterval(TimeInterval(offset * 60))
             let parts = localCalendar.dateComponents([.year, .month, .day, .hour, .minute], from: candidate)
             return parts.year == year && parts.month == month && parts.day == day && parts.hour == hour && parts.minute == minute ? candidate : nil

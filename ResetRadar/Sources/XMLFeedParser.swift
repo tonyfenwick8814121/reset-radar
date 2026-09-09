@@ -3,7 +3,7 @@ import Foundation
 final class XMLFeedParser: NSObject, XMLParserDelegate {
     private var items: [FeedItem] = []
     private var current: [String: String] = [:]
-    private var text = ""
+    private var elementStack: [String] = []
     private var insideItem = false
     private var parsedSuccessfully = false
     private var recognizedFeedRoot = false
@@ -11,6 +11,7 @@ final class XMLFeedParser: NSObject, XMLParserDelegate {
     func parse(_ data: Data) throws -> [FeedItem] {
         items = []
         current = [:]
+        elementStack = []
         recognizedFeedRoot = false
         let parser = XMLParser(data: data)
         parser.shouldResolveExternalEntities = false
@@ -28,7 +29,7 @@ final class XMLFeedParser: NSObject, XMLParserDelegate {
         attributes attributeDict: [String: String] = [:]
     ) {
         let element = localName(qName ?? elementName)
-        text = ""
+        elementStack.append(element)
         if element == "rss" || element == "feed" { recognizedFeedRoot = true }
         if element == "item" || element == "entry" {
             insideItem = true
@@ -41,7 +42,11 @@ final class XMLFeedParser: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        text += string
+        appendText(string)
+    }
+
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        appendText(String(decoding: CDATABlock, as: UTF8.self))
     }
 
     func parser(
@@ -51,30 +56,32 @@ final class XMLFeedParser: NSObject, XMLParserDelegate {
         qualifiedName qName: String?
     ) {
         let element = localName(qName ?? elementName)
-        guard insideItem else { return }
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !value.isEmpty, ["title", "description", "summary", "content", "guid", "id", "link", "pubDate", "published", "updated"].contains(element) {
-            current[element] = (current[element] ?? "") + value
-        }
-        if element == "item" || element == "entry" {
+        if insideItem && (element == "item" || element == "entry") {
             finishItem()
             insideItem = false
         }
-        text = ""
+        if !elementStack.isEmpty { elementStack.removeLast() }
+    }
+
+    private func appendText(_ string: String) {
+        guard insideItem else { return }
+        let captured = Set(elementStack).intersection(["title", "description", "summary", "content", "guid", "id", "link", "pubDate", "published", "updated"])
+        for element in captured { current[element, default: ""] += string }
     }
 
     private func finishItem() {
         let title = current["title"]?.decodedXMLText ?? "Untitled"
         let body = (current["description"] ?? current["summary"] ?? current["content"] ?? "").decodedXMLText
         let linkText = current["link"]
-        let stableID = current["guid"] ?? current["id"] ?? linkText ?? "\(title)|\(current["published"] ?? current["pubDate"] ?? "")"
-        let dateText = current["published"] ?? current["updated"] ?? current["pubDate"]
+        let stableID = current["guid"] ?? current["id"] ?? linkText ?? "\(title)|\(current["published"] ?? current["pubDate"] ?? current["updated"] ?? "")"
+        let publishedText = current["published"] ?? current["pubDate"]
         items.append(FeedItem(
             id: stableID,
             title: title,
             body: body,
             url: linkText.flatMap(URL.init(string:)),
-            publishedAt: dateText.flatMap(Self.parseDate)
+            publishedAt: publishedText.flatMap(Self.parseDate),
+            updatedAt: current["updated"].flatMap(Self.parseDate)
         ))
     }
 
@@ -83,6 +90,9 @@ final class XMLFeedParser: NSObject, XMLParserDelegate {
     }
 
     private static func parseDate(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: value) { return date }
         let iso = ISO8601DateFormatter()
         if let date = iso.date(from: value) { return date }
         let formatter = DateFormatter()

@@ -1,5 +1,10 @@
 import Foundation
 
+struct StoreLoadResult<Value: Sendable>: Sendable {
+    let value: Value
+    let issue: String?
+}
+
 actor LocalStore {
     private let directory: URL
     private let encoder: JSONEncoder
@@ -19,34 +24,38 @@ actor LocalStore {
         decoder.dateDecodingStrategy = .iso8601
     }
 
-    func loadEvents() -> [ResetEvent] { load([ResetEvent].self, from: "events.json") ?? [] }
-    func loadStatuses() -> [SourceStatus] { load([SourceStatus].self, from: "source-status.json") ?? [] }
-    func loadPreferences() -> UserPreferences { load(UserPreferences.self, from: "preferences.json") ?? .defaults }
+    func loadEvents() -> [ResetEvent] { loadEventsResult().value }
+    func loadStatuses() -> [SourceStatus] { loadStatusesResult().value }
+    func loadPreferences() -> UserPreferences { loadPreferencesResult().value }
+    func loadEventsResult() -> StoreLoadResult<[ResetEvent]> { loadResult([ResetEvent].self, from: "events.json", fallback: []) }
+    func loadStatusesResult() -> StoreLoadResult<[SourceStatus]> { loadResult([SourceStatus].self, from: "source-status.json", fallback: []) }
+    func loadPreferencesResult() -> StoreLoadResult<UserPreferences> { loadResult(UserPreferences.self, from: "preferences.json", fallback: .defaults) }
 
     func saveEvents(_ events: [ResetEvent]) throws { try save(events, to: "events.json") }
     func saveStatuses(_ statuses: [SourceStatus]) throws { try save(statuses, to: "source-status.json") }
     func savePreferences(_ preferences: UserPreferences) throws { try save(preferences, to: "preferences.json") }
 
-    private func load<T: Decodable>(_ type: T.Type, from name: String) -> T? {
+    private func loadResult<T: Decodable & Sendable>(_ type: T.Type, from name: String, fallback: T) -> StoreLoadResult<T> {
         let url = directory.appendingPathComponent(name)
         let backup = directory.appendingPathComponent(name + ".backup")
-        if let data = try? Data(contentsOf: url), let value = try? decoder.decode(type, from: data) { return value }
-        if let data = try? Data(contentsOf: backup), let value = try? decoder.decode(type, from: data) { return value }
-        return nil
+        let primaryExists = FileManager.default.fileExists(atPath: url.path)
+        if let data = try? Data(contentsOf: url), let value = try? decoder.decode(type, from: data) {
+            return StoreLoadResult(value: value, issue: nil)
+        }
+        if let data = try? Data(contentsOf: backup), let value = try? decoder.decode(type, from: data) {
+            return StoreLoadResult(value: value, issue: "Recovered \(name) from the last valid backup")
+        }
+        return StoreLoadResult(value: fallback, issue: primaryExists ? "Could not read \(name); using safe defaults" : nil)
     }
 
-    private func save<T: Encodable>(_ value: T, to name: String) throws {
+    private func save<T: Codable>(_ value: T, to name: String) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(name)
         let backup = directory.appendingPathComponent(name + ".backup")
-        let temporary = directory.appendingPathComponent(name + ".temporary")
         let data = try encoder.encode(value)
-        if FileManager.default.fileExists(atPath: url.path) {
-            if FileManager.default.fileExists(atPath: backup.path) { try FileManager.default.removeItem(at: backup) }
-            try FileManager.default.copyItem(at: url, to: backup)
+        if let existing = try? Data(contentsOf: url), (try? decoder.decode(T.self, from: existing)) != nil {
+            try existing.write(to: backup, options: [.atomic])
         }
-        try data.write(to: temporary, options: [.atomic])
-        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
-        try FileManager.default.moveItem(at: temporary, to: url)
+        try data.write(to: url, options: [.atomic])
     }
 }

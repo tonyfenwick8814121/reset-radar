@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import UserNotifications
 
 @MainActor
 final class MonitorModel: ObservableObject {
@@ -9,17 +8,22 @@ final class MonitorModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published var preferences: UserPreferences = .defaults
     @Published private(set) var launchAtLoginMessage: String?
+    @Published private(set) var storageMessage: String?
 
     private let store: LocalStore
     private let client: FeedClient
+    private let scheduler: any ReminderScheduling
     private let classifier = AnnouncementClassifier()
     private let reconciler = EventReconciler()
     private var pollTask: Task<Void, Never>?
+    private var lifecycleTask: Task<Void, Never>?
     var onNewActionableEvent: ((ResetEvent) -> Void)?
+    var onPreferencesChanged: ((UserPreferences) -> Void)?
 
-    init(store: LocalStore = LocalStore(), client: FeedClient = FeedClient()) {
+    init(store: LocalStore = LocalStore(), client: FeedClient = FeedClient(), scheduler: any ReminderScheduling = ReminderScheduler.shared) {
         self.store = store
         self.client = client
+        self.scheduler = scheduler
     }
 
     var activeEvent: ResetEvent? {
@@ -28,20 +32,19 @@ final class MonitorModel: ObservableObject {
 
     static func selectActiveEvent(_ events: [ResetEvent], now: Date) -> ResetEvent? {
         let future = events.filter { event in
-            event.state == .scheduled && event.targetAt.map { $0 > now } == true
+            event.kind == .automaticReset && event.state == .scheduled && event.targetAt.map { $0 > now } == true
         }.sorted { ($0.targetAt ?? .distantFuture) < ($1.targetAt ?? .distantFuture) }
         if let next = future.first { return next }
         let recentlyDue = events.filter { event in
             guard let target = event.targetAt else { return false }
-            return (event.state == .dueUnconfirmed || event.state == .scheduled) && target <= now && target >= now.addingTimeInterval(-86_400)
+            return event.kind == .automaticReset && (event.state == .dueUnconfirmed || event.state == .scheduled) && target <= now && target >= now.addingTimeInterval(-86_400)
         }.sorted { ($0.targetAt ?? .distantPast) > ($1.targetAt ?? .distantPast) }
         if let due = recentlyDue.first { return due }
         let validGrants = events.filter {
             $0.kind == .bankedResetGrant &&
-            $0.state != .archived &&
-            $0.state != .cancelled &&
-            ($0.expiresAt.map { $0 > now } == true ||
-             $0.bestEvidence?.publishedAt.map { $0 >= now.addingTimeInterval(-86_400) } == true)
+            ($0.state == .available || $0.state == .unresolved) &&
+            ($0.expiresAt.map { $0 > now } ??
+             ($0.bestEvidence?.publishedAt.map { $0 >= now.addingTimeInterval(-86_400) } == true))
         }
             .sorted { $0.updatedAt > $1.updatedAt }
         if let grant = validGrants.first { return grant }
@@ -52,28 +55,69 @@ final class MonitorModel: ObservableObject {
         }.sorted { $0.updatedAt > $1.updatedAt }.first
     }
 
+    @discardableResult
+    static func advanceLifecycle(_ events: inout [ResetEvent], now: Date) -> Bool {
+        var changed = false
+        for index in events.indices {
+            if events[index].kind == .automaticReset,
+               let target = events[index].targetAt {
+                if events[index].state == .scheduled && target <= now {
+                    events[index].state = .dueUnconfirmed
+                    events[index].updatedAt = now
+                    changed = true
+                }
+                if events[index].state == .dueUnconfirmed && target < now.addingTimeInterval(-86_400) {
+                    events[index].state = .archived
+                    events[index].updatedAt = now
+                    changed = true
+                }
+            }
+            if events[index].kind == .bankedResetGrant,
+               (events[index].state == .available || events[index].state == .unresolved),
+               let expiry = events[index].expiresAt,
+               expiry <= now {
+                events[index].state = .expired
+                events[index].updatedAt = now
+                changed = true
+            }
+        }
+        return changed
+    }
+
     var mostRecentAttempt: Date? { statuses.compactMap(\.lastAttemptAt).max() }
     var mostRecentSuccess: Date? { statuses.compactMap(\.lastTransportSuccessAt).max() }
     var failedSourceCount: Int { statuses.filter { $0.result == .failed }.count }
 
-    func start(loadPreview: Bool = false) {
+    @discardableResult
+    func start(loadPreview: Bool = false) -> Task<Void, Never> {
         Task {
-            async let savedEvents = store.loadEvents()
-            async let savedStatuses = store.loadStatuses()
-            async let savedPreferences = store.loadPreferences()
-            events = await savedEvents
-            statuses = await savedStatuses
-            preferences = await savedPreferences
+            async let savedEvents = store.loadEventsResult()
+            async let savedStatuses = store.loadStatusesResult()
+            async let savedPreferences = store.loadPreferencesResult()
+            let loadedEvents = await savedEvents
+            let loadedStatuses = await savedStatuses
+            let loadedPreferences = await savedPreferences
+            events = loadedEvents.value
+            statuses = loadedStatuses.value
+            preferences = loadedPreferences.value
+            storageMessage = [loadedEvents.issue, loadedStatuses.issue, loadedPreferences.issue].compactMap { $0 }.joined(separator: " · ")
+            if storageMessage?.isEmpty == true { storageMessage = nil }
             preferences.launchAtLogin = LaunchAtLoginService.isEnabled
+            _ = Self.advanceLifecycle(&events, now: Date())
             if loadPreview { addPreviewEvent() }
             await refresh(force: false)
+            await scheduler.reconcile(events: events, preferences: preferences, now: Date())
             beginPolling()
+            beginLifecycleMonitoring()
+            onPreferencesChanged?(preferences)
         }
     }
 
     func stop() {
         pollTask?.cancel()
         pollTask = nil
+        lifecycleTask?.cancel()
+        lifecycleTask = nil
     }
 
     func refresh(force: Bool = true) async {
@@ -83,6 +127,7 @@ final class MonitorModel: ObservableObject {
 
         for source in FeedSource.defaults {
             let previous = status(for: source)
+            if let cooldown = previous.cooldownUntil, cooldown > Date() { continue }
             if !force, let next = previous.nextCheckAt, next > Date() { continue }
             updateStatus(source) { status in
                 status.result = .checking
@@ -94,59 +139,82 @@ final class MonitorModel: ObservableObject {
                 updateStatus(source) { status in
                     status.result = .success
                     status.lastTransportSuccessAt = batch.fetchedAt
-                    status.latestCoveredPublicationAt = batch.items.compactMap(\.publishedAt).max() ?? status.latestCoveredPublicationAt
+                    status.latestCoveredPublicationAt = batch.items.compactMap(\.freshnessDate).max() ?? status.latestCoveredPublicationAt
                     status.nextCheckAt = batch.fetchedAt.addingTimeInterval(source.interval)
                     status.consecutiveFailures = 0
                     status.etag = batch.etag ?? status.etag
                     status.lastModified = batch.lastModified ?? status.lastModified
                     status.message = batch.notModified ? "304 · cached" : "\(batch.items.count) items"
+                    status.itemCount = batch.notModified ? status.itemCount : batch.items.count
+                    status.cooldownUntil = nil
                 }
                 guard !batch.notModified else { continue }
                 for item in batch.items {
                     guard let candidate = classifier.classify(item, source: source, fetchedAt: batch.fetchedAt) else { continue }
+                    let linkedTerminal = (candidate.state == .announcedComplete || candidate.state == .cancelled)
+                        ? associateTerminalAnnouncement(candidate) : nil
                     let outcome = reconciler.merge(candidate, into: &events)
-                    if outcome != .unchanged, candidate.targetAt.map({ $0 > Date() }) == true {
-                        await ReminderScheduler.shared.schedule(candidate, preferences: preferences)
-                        onNewActionableEvent?(candidate)
+                    if let linkedTerminal {
+                        onNewActionableEvent?(linkedTerminal)
+                    } else if outcome != .unchanged,
+                       let stored = events.first(where: { $0.id == candidate.id }),
+                       isActionable(stored, now: Date()) {
+                        onNewActionableEvent?(stored)
                     }
                 }
             } catch {
                 updateStatus(source) { status in
                     status.result = .failed
                     status.consecutiveFailures += 1
-                    status.nextCheckAt = Date().addingTimeInterval(backoff(for: status.consecutiveFailures, base: source.interval))
+                    let now = Date()
+                    let normalBackoff = backoff(for: status.consecutiveFailures, base: source.interval)
+                    if case FeedError.http(let code, let retryAfter) = error, code == 429 || code == 403 {
+                        let delay = max(normalBackoff, retryAfter ?? (code == 403 ? 86_400 : normalBackoff))
+                        status.cooldownUntil = now.addingTimeInterval(delay)
+                        status.nextCheckAt = status.cooldownUntil
+                    } else {
+                        status.cooldownUntil = nil
+                        status.nextCheckAt = now.addingTimeInterval(normalBackoff)
+                    }
                     status.message = error.localizedDescription
                 }
             }
         }
+        _ = Self.advanceLifecycle(&events, now: Date())
         events = events.sorted { $0.updatedAt > $1.updatedAt }
-        try? await store.saveEvents(events)
-        try? await store.saveStatuses(statuses)
+        do {
+            try await store.saveEvents(events)
+            try await store.saveStatuses(statuses)
+        } catch {
+            storageMessage = error.localizedDescription
+        }
+        await scheduler.reconcile(events: events, preferences: preferences, now: Date())
     }
 
     func setLocale(_ locale: AppLocale) {
         preferences.locale = locale
-        persistPreferences()
+        preferencesDidChange(reschedule: true)
+        onPreferencesChanged?(preferences)
     }
 
     func setTimeZone(_ identifier: String) {
         preferences.displayTimeZone = identifier
-        persistPreferences()
+        preferencesDidChange()
     }
 
     func setExpanded(_ expanded: Bool) {
         preferences.detailsExpanded = expanded
-        persistPreferences()
+        preferencesDidChange()
     }
 
     func setAudioEnabled(_ enabled: Bool) {
         preferences.audioEnabled = enabled
-        persistPreferences()
+        preferencesDidChange(reschedule: true)
     }
 
     func setVolume(_ volume: Double) {
         preferences.volume = min(max(volume, 0), 1)
-        persistPreferences()
+        preferencesDidChange()
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -154,7 +222,7 @@ final class MonitorModel: ObservableObject {
             try LaunchAtLoginService.setEnabled(enabled)
             preferences.launchAtLogin = LaunchAtLoginService.isEnabled
             launchAtLoginMessage = nil
-            persistPreferences()
+            preferencesDidChange()
         } catch {
             preferences.launchAtLogin = LaunchAtLoginService.isEnabled
             launchAtLoginMessage = error.localizedDescription
@@ -163,7 +231,58 @@ final class MonitorModel: ObservableObject {
 
     func setWindowMode(_ mode: String) {
         preferences.windowMode = mode
+        preferencesDidChange()
+    }
+
+    func setWindowFrame(_ frame: WindowFrame, mode: String) {
+        if mode == "mini" { preferences.miniWindowFrame = frame }
+        else { preferences.mainWindowFrame = frame }
         persistPreferences()
+    }
+
+    func markEvent(_ id: String, as state: EventState) {
+        guard let index = events.firstIndex(where: { $0.id == id }) else { return }
+        events[index].revision += 1
+        events[index].state = state
+        events[index].updatedAt = Date()
+        let snapshot = events
+        let currentPreferences = preferences
+        Task {
+            await persistEvents(snapshot)
+            await scheduler.reconcile(events: snapshot, preferences: currentPreferences, now: Date())
+        }
+    }
+
+    func addManualEvent(_ draft: ManualEntryDraft) {
+        let now = Date()
+        let isGrant = draft.kind == .bankedResetGrant
+        let event = ResetEvent(
+            id: "manual-\(UUID().uuidString.lowercased())",
+            revision: 1,
+            kind: draft.kind,
+            timeMeaning: isGrant ? (draft.date == nil ? .grantAvailability : .grantExpiry) : .automaticReset,
+            state: isGrant ? (draft.date.map { $0 <= now } == true ? .expired : .available) : (draft.date.map { $0 > now } == true ? .scheduled : .unresolved),
+            precision: draft.date == nil ? .unknown : .exact,
+            title: isGrant ? "手动重置机会" : "手动重置预告",
+            titleEN: isGrant ? "Manual reset opportunity" : "Manual reset announcement",
+            targetAt: isGrant ? nil : draft.date,
+            windowStart: nil,
+            windowEnd: nil,
+            expiresAt: isGrant ? draft.date : nil,
+            products: [draft.product],
+            audience: draft.audience,
+            evidence: [Evidence(sourceID: "manual", itemID: UUID().uuidString, sourceKind: .manual, url: Self.firstWebURL(in: draft.text), publishedAt: now, fetchedAt: now, excerpt: String(draft.text.prefix(500)), contentHash: UUID().uuidString)],
+            firstSeenAt: now,
+            updatedAt: now
+        )
+        events.insert(event, at: 0)
+        onNewActionableEvent?(event)
+        let snapshot = events
+        let currentPreferences = preferences
+        Task {
+            await persistEvents(snapshot)
+            await scheduler.reconcile(events: snapshot, preferences: currentPreferences, now: now)
+        }
     }
 
     func addPreviewEvent(seconds: TimeInterval = 3672) {
@@ -172,6 +291,7 @@ final class MonitorModel: ObservableObject {
             id: "preview-event",
             revision: 1,
             kind: .automaticReset,
+            timeMeaning: .automaticReset,
             state: .scheduled,
             precision: .exact,
             title: "额度重置预告",
@@ -188,21 +308,24 @@ final class MonitorModel: ObservableObject {
         )
         _ = reconciler.merge(event, into: &events)
         let snapshot = events
-        Task { try? await store.saveEvents(snapshot) }
+        Task { await persistEvents(snapshot) }
     }
 
 
     func clearPreviewEvent() {
         events.removeAll { $0.id == "preview-event" }
         let snapshot = events
-        Task { try? await store.saveEvents(snapshot) }
+        Task { await persistEvents(snapshot) }
     }
 
     func handleWake() async {
         await refresh(force: true)
-        if let event = activeEvent, event.targetAt.map({ $0 > Date() }) == true {
-            await ReminderScheduler.shared.schedule(event, preferences: preferences)
-        }
+        _ = Self.advanceLifecycle(&events, now: Date())
+        await scheduler.reconcile(events: events, preferences: preferences, now: Date())
+    }
+
+    func cancelPendingReminders() async {
+        await scheduler.cancelAll()
     }
 
     private func beginPolling() {
@@ -212,6 +335,22 @@ final class MonitorModel: ObservableObject {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { return }
                 await self?.refresh(force: false)
+            }
+        }
+    }
+
+    private func beginLifecycleMonitoring() {
+        lifecycleTask?.cancel()
+        lifecycleTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self else { return }
+                if Self.advanceLifecycle(&self.events, now: Date()) {
+                    let snapshot = self.events
+                    let currentPreferences = self.preferences
+                    await self.persistEvents(snapshot)
+                    await self.scheduler.reconcile(events: snapshot, preferences: currentPreferences, now: Date())
+                }
             }
         }
     }
@@ -234,11 +373,69 @@ final class MonitorModel: ObservableObject {
 
     private func persistPreferences() {
         let value = preferences
-        Task { try? await store.savePreferences(value) }
+        Task {
+            do {
+                try await store.savePreferences(value)
+            } catch {
+                storageMessage = error.localizedDescription
+            }
+        }
     }
 
-    private func backoff(for failures: Int, base: TimeInterval) -> TimeInterval {
-        min(base * pow(2, Double(max(0, failures - 1))), 3600)
+    private func persistEvents(_ snapshot: [ResetEvent]) async {
+        do {
+            try await store.saveEvents(snapshot)
+        } catch {
+            storageMessage = error.localizedDescription
+        }
+    }
+
+    private func preferencesDidChange(reschedule: Bool = false) {
+        persistPreferences()
+        if reschedule {
+            let snapshot = events
+            let currentPreferences = preferences
+            Task { await scheduler.reconcile(events: snapshot, preferences: currentPreferences, now: Date()) }
+        }
+    }
+
+    private func isActionable(_ event: ResetEvent, now: Date) -> Bool {
+        if event.kind == .automaticReset {
+            return event.targetAt.map { $0 > now } == true || event.state == .cancelled || event.state == .announcedComplete
+        }
+        if event.kind == .bankedResetGrant {
+            guard event.state == .available else { return false }
+            if let expiry = event.expiresAt { return expiry > now }
+            return event.bestEvidence?.publishedAt.map { $0 >= now.addingTimeInterval(-86_400) } == true
+        }
+        return event.kind == .lead
+    }
+
+    private func associateTerminalAnnouncement(_ announcement: ResetEvent) -> ResetEvent? {
+        let matching = events.indices.filter { index in
+            let event = events[index]
+            return event.kind == .automaticReset &&
+                (event.state == .scheduled || event.state == .dueUnconfirmed) &&
+                !Set(event.products).isDisjoint(with: announcement.products)
+        }
+        guard matching.count == 1, let index = matching.first, events[index].id != announcement.id else { return nil }
+        events[index].revision += 1
+        events[index].state = announcement.state
+        events[index].updatedAt = announcement.updatedAt
+        for evidence in announcement.evidence where !events[index].evidence.contains(evidence) {
+            events[index].evidence.append(evidence)
+        }
+        return events[index]
+    }
+
+    private func backoff(for failures: Int, base _: TimeInterval) -> TimeInterval {
+        let schedule: [TimeInterval] = [60, 120, 300, 600, 900]
+        return schedule[min(max(1, failures), schedule.count) - 1]
+    }
+
+    private static func firstWebURL(in text: String) -> URL? {
+        guard let range = text.range(of: #"https?://[^\s]+"#, options: .regularExpression) else { return nil }
+        return URL(string: String(text[range]).trimmingCharacters(in: CharacterSet(charactersIn: ".,;)")))
     }
 }
 

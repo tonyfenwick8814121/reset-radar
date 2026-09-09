@@ -12,8 +12,19 @@ enum EventState: String, Codable, Sendable {
     case scheduled
     case dueUnconfirmed
     case announcedComplete
+    case available
+    case expired
+    case used
+    case dismissed
     case cancelled
     case archived
+}
+
+enum TimeMeaning: String, Codable, Sendable {
+    case automaticReset
+    case grantAvailability
+    case grantExpiry
+    case unknown
 }
 
 enum TimePrecision: String, Codable, Sendable {
@@ -45,6 +56,7 @@ struct ResetEvent: Identifiable, Codable, Hashable, Sendable {
     var id: String
     var revision: Int
     var kind: ResetKind
+    var timeMeaning: TimeMeaning = .unknown
     var state: EventState
     var precision: TimePrecision
     var title: String
@@ -61,6 +73,62 @@ struct ResetEvent: Identifiable, Codable, Hashable, Sendable {
 
     var bestEvidence: Evidence? {
         evidence.sorted { ($0.publishedAt ?? .distantPast) > ($1.publishedAt ?? .distantPast) }.first
+    }
+
+    var countdownAt: Date? {
+        kind == .bankedResetGrant ? expiresAt : targetAt
+    }
+}
+
+extension ResetEvent {
+    enum CodingKeys: String, CodingKey {
+        case id, revision, kind, timeMeaning, state, precision, title, titleEN, targetAt
+        case windowStart, windowEnd, expiresAt, products, audience, evidence, firstSeenAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        revision = try values.decodeIfPresent(Int.self, forKey: .revision) ?? 1
+        kind = try values.decode(ResetKind.self, forKey: .kind)
+        state = try values.decode(EventState.self, forKey: .state)
+        precision = try values.decode(TimePrecision.self, forKey: .precision)
+        title = try values.decode(String.self, forKey: .title)
+        titleEN = try values.decode(String.self, forKey: .titleEN)
+        targetAt = try values.decodeIfPresent(Date.self, forKey: .targetAt)
+        windowStart = try values.decodeIfPresent(Date.self, forKey: .windowStart)
+        windowEnd = try values.decodeIfPresent(Date.self, forKey: .windowEnd)
+        expiresAt = try values.decodeIfPresent(Date.self, forKey: .expiresAt)
+        products = try values.decodeIfPresent([String].self, forKey: .products) ?? []
+        audience = try values.decodeIfPresent(String.self, forKey: .audience) ?? "unknown"
+        evidence = try values.decodeIfPresent([Evidence].self, forKey: .evidence) ?? []
+        firstSeenAt = try values.decode(Date.self, forKey: .firstSeenAt)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+        timeMeaning = try values.decodeIfPresent(TimeMeaning.self, forKey: .timeMeaning) ?? {
+            if kind == .bankedResetGrant { return expiresAt == nil ? .grantAvailability : .grantExpiry }
+            return kind == .automaticReset ? .automaticReset : .unknown
+        }()
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(revision, forKey: .revision)
+        try values.encode(kind, forKey: .kind)
+        try values.encode(timeMeaning, forKey: .timeMeaning)
+        try values.encode(state, forKey: .state)
+        try values.encode(precision, forKey: .precision)
+        try values.encode(title, forKey: .title)
+        try values.encode(titleEN, forKey: .titleEN)
+        try values.encodeIfPresent(targetAt, forKey: .targetAt)
+        try values.encodeIfPresent(windowStart, forKey: .windowStart)
+        try values.encodeIfPresent(windowEnd, forKey: .windowEnd)
+        try values.encodeIfPresent(expiresAt, forKey: .expiresAt)
+        try values.encode(products, forKey: .products)
+        try values.encode(audience, forKey: .audience)
+        try values.encode(evidence, forKey: .evidence)
+        try values.encode(firstSeenAt, forKey: .firstSeenAt)
+        try values.encode(updatedAt, forKey: .updatedAt)
     }
 }
 
@@ -86,6 +154,8 @@ struct SourceStatus: Identifiable, Codable, Hashable, Sendable {
     var consecutiveFailures: Int
     var etag: String?
     var lastModified: String?
+    var itemCount: Int? = nil
+    var cooldownUntil: Date? = nil
 }
 
 enum AppLocale: String, Codable, CaseIterable, Sendable {
@@ -93,8 +163,17 @@ enum AppLocale: String, Codable, CaseIterable, Sendable {
     case en
 }
 
+struct WindowFrame: Codable, Equatable, Sendable {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+}
+
 struct UserPreferences: Codable, Equatable, Sendable {
-    var schemaVersion = 1
+    static let currentSchemaVersion = 2
+
+    var schemaVersion = currentSchemaVersion
     var locale: AppLocale = .zhHans
     var displayTimeZone = "Asia/Shanghai"
     var audioEnabled = true
@@ -103,8 +182,44 @@ struct UserPreferences: Codable, Equatable, Sendable {
     var reminderOffsets: [TimeInterval] = [1800, 300]
     var detailsExpanded = false
     var windowMode = "main"
+    var mainWindowFrame: WindowFrame?
+    var miniWindowFrame: WindowFrame?
 
     static let defaults = UserPreferences()
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, locale, displayTimeZone, audioEnabled, volume, launchAtLogin
+        case reminderOffsets, detailsExpanded, windowMode, mainWindowFrame, miniWindowFrame
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let storedVersion = try values.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        guard storedVersion <= Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: values, debugDescription: "Unsupported preference schema \(storedVersion)")
+        }
+        locale = try values.decodeIfPresent(AppLocale.self, forKey: .locale) ?? .zhHans
+        displayTimeZone = try values.decodeIfPresent(String.self, forKey: .displayTimeZone) ?? "Asia/Shanghai"
+        audioEnabled = try values.decodeIfPresent(Bool.self, forKey: .audioEnabled) ?? true
+        volume = try values.decodeIfPresent(Double.self, forKey: .volume) ?? 0.65
+        launchAtLogin = try values.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
+        reminderOffsets = try values.decodeIfPresent([TimeInterval].self, forKey: .reminderOffsets) ?? [1800, 300]
+        detailsExpanded = try values.decodeIfPresent(Bool.self, forKey: .detailsExpanded) ?? false
+        windowMode = try values.decodeIfPresent(String.self, forKey: .windowMode) ?? "main"
+        mainWindowFrame = try values.decodeIfPresent(WindowFrame.self, forKey: .mainWindowFrame)
+        miniWindowFrame = try values.decodeIfPresent(WindowFrame.self, forKey: .miniWindowFrame)
+        schemaVersion = Self.currentSchemaVersion
+    }
+}
+
+struct ManualEntryDraft: Sendable {
+    var text: String
+    var kind: ResetKind
+    var date: Date?
+    var product: String
+    var audience: String
 }
 
 struct FeedItem: Hashable, Sendable {
@@ -113,6 +228,18 @@ struct FeedItem: Hashable, Sendable {
     let body: String
     let url: URL?
     let publishedAt: Date?
+    let updatedAt: Date?
+
+    var freshnessDate: Date? { publishedAt ?? updatedAt }
+
+    init(id: String, title: String, body: String, url: URL?, publishedAt: Date?, updatedAt: Date? = nil) {
+        self.id = id
+        self.title = title
+        self.body = body
+        self.url = url
+        self.publishedAt = publishedAt
+        self.updatedAt = updatedAt
+    }
 }
 
 struct FeedBatch: Sendable {
@@ -125,14 +252,14 @@ struct FeedBatch: Sendable {
 
 enum FeedError: LocalizedError {
     case invalidResponse
-    case http(Int)
+    case http(Int, retryAfter: TimeInterval?)
     case oversized
     case malformedXML
 
     var errorDescription: String? {
         switch self {
         case .invalidResponse: return "Invalid response"
-        case .http(let code): return "HTTP \(code)"
+        case .http(let code, _): return "HTTP \(code)"
         case .oversized: return "Feed is too large"
         case .malformedXML: return "Malformed RSS/Atom"
         }

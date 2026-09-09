@@ -35,6 +35,15 @@ final class TimeResolverTests: XCTestCase {
         }
     }
 
+    func testISO8601OffsetTimestampIsExact() {
+        XCTAssertEqual(resolver.resolve("Codex reset 2026-09-09T14:00:00-07:00"), .exact(iso.date(from: "2026-09-09T21:00:00Z")!))
+    }
+
+    func testInvalidMeridiemHourIsUnresolved() {
+        let result = resolver.resolve("Reset tomorrow at 14pm PT", publishedAt: iso.date(from: "2026-09-09T12:00:00Z"), verifiedContextZone: "America/Los_Angeles")
+        guard case .unresolved = result else { return XCTFail("Expected invalid 14pm to remain unresolved") }
+    }
+
     private func assertExact(_ input: String, equals expected: String) {
         XCTAssertEqual(resolver.resolve(input), .exact(iso.date(from: expected)!))
     }

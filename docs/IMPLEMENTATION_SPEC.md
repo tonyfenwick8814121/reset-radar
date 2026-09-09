@@ -12,7 +12,7 @@
 | kind | `automatic_reset / banked_reset_grant / limit_change / lead` |
 | products / limitWindows | 数组；明确区分 chatgpt、chatgpt_work、codex、unknown；weekly、five_hour、other、unknown |
 | audience | 范围 all/partial/unknown、套餐数组、原始条件文字；不存个人账户身份 |
-| state | `unresolved / scheduled / due_unconfirmed / announced_complete / cancelled / archived` |
+| state | `unresolved / scheduled / due_unconfirmed / announced_complete / cancelled / archived / available / expired / used / dismissed` |
 | time | precision=`exact / approximate / range / date_only / unknown`；targetAtUTC、windowStartUTC、windowEndUTC、expiresAtUTC 均可空，ISO 8601 UTC；存在明确原文证据才赋值 |
 | timeMeaning | `automatic_reset / grant_availability / grant_expiry / unknown`；重置券不能被标记成自动重置 |
 | timeEvidence | rawText、sourceZoneRaw、sourceZoneIANA、sourceOffset、referencePublishedAtUTC、resolution=`rule / user_confirmed / unresolved` |
@@ -24,9 +24,9 @@
 
 `UserPreferences`：schemaVersion、locale=`zh-Hans/en`、displayTimeZone=`Asia/Shanghai`或`system`、theme、productFilter、planFilter、audioEnabled、volume、reminderOffsets、quietHours、autoExpandNewEvents、launchAtLogin、windowMode/frames/displayId、detailsExpanded、reduceTransparency。普通设置本地保存；免费首版没有 X 凭据。
 
-`NotificationLedger`：eventId、revision、kind（discovery/time_changed/cancelled/threshold/due/complete/grant）、threshold、disposition（scheduled/delivered/suppressed）、timestamp。事件语义无变化不增加 revision；翻译和阅读量不参与内容意义比较。
+通知以 eventId、revision、阈值、语言和声音设置组成稳定标识。每次协调都对照系统 pending requests，删除旧 revision、已取消和已结束事件的提醒，再创建尚未到期的节点。事件语义无变化不增加 revision；翻译和阅读量不参与内容意义比较。
 
-数据目录：`~/Library/Application Support/ResetRadar/`。events.json、source-status.json、preferences.json、notification-ledger.json 使用临时文件+原子替换；最近有效备份一份。写入前验证版本；损坏时恢复备份并报告，不清空冒充无公告。历史默认保留 90 天；本地错误日志 7 天、上限 5 MB、无令牌。X 内容留存及公开再分发方式在发布前按当时平台条款核查，尽量保存 ID、链接和派生事件，不打包原帖数据库。
+数据目录：`~/Library/Application Support/ResetRadar/`。events.json、source-status.json、preferences.json 原子写入，并保留最近一份可解码备份。读取时验证版本；损坏时恢复备份并在界面报告，不清空冒充无公告。系统待发提醒本身作为可协调清单，不另存通知账本。X 内容留存及公开再分发方式在发布前按当时平台条款核查，尽量保存 ID、链接和派生事件，不打包原帖数据库。
 
 ## 模块与文件布局
 
@@ -93,7 +93,7 @@ RSS 的 pubDate、Atom updated 可能是文章更新时刻，不能作为“tomo
 - 夏令时跳变不存在/重复的当地时刻 → unresolved，除非原文有明确偏移；不能用系统默认选择。
 - `already reset / now / rolling out in the next hour` 是完成公告或发布窗口，不能从抓取时刻加一小时假装预定重置。
 
-显示剩余值用 `max(0, ceil(targetUTC - effectiveNow))`；每次重绘重新计算，不逐次减一。100 小时以上显示 `D天 HH:mm:ss`。通过连续时钟与系统时间差检测运行中调钟；系统时钟明显跳变时提示并重算提醒。首版以系统自动校时为基础，不把普通 HTTP Date 当权威时间源。睡眠恢复立即重读当前时间、刷新事件、取消失效本地通知并合并补提醒。
+显示剩余值用 `max(0, ceil(targetUTC - effectiveNow))`；每次重绘重新计算，不逐次减一。2026-09-09 用户追加要求：取消天数，只显示累计小时 `HH:mm:ss`，小时数取总秒数整除 3600，不对 24 取模。小于 100 小时至少两位补零；100 小时显示 `100:00:00`，一周显示 `168:00:00`。主窗和迷你窗预留三位小时，三位是常规布局预留而非截断上限；更大值仍显示真实累计小时并自适应字号，禁止回绕、封顶 99 或恢复天数。中英文共用纯数字格式。通过连续时钟与系统时间差检测运行中调钟；系统时钟明显跳变时提示并重算提醒。首版以系统自动校时为基础，不把普通 HTTP Date 当权威时间源。睡眠恢复立即重读当前时间、刷新事件、取消失效本地通知并合并补提醒。
 
 ## 调度、提醒与窗口
 

@@ -1,0 +1,96 @@
+[0/1] Planning build
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version--58304C5D6DBC2206.txt
+[3/5] Compiling ResetRadarTests AcceptanceAuditTests.swift
+[4/5] Emitting module ResetRadarTests
+[4/6] Write Objects.LinkFileList
+[5/6] Linking ResetRadarPackageTests
+Build complete! (2.04s)
+Test Suite 'Selected tests' started at 2026-09-09 12:32:11.645.
+Test Suite 'ResetRadarPackageTests.xctest' started at 2026-09-09 12:32:11.646.
+Test Suite 'AcceptanceAuditTests' started at 2026-09-09 12:32:11.646.
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA01GrantExpiryMustNotBecomeAutomaticTarget]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:28: error: -[ResetRadarTests.AcceptanceAuditTests testA01GrantExpiryMustNotBecomeAutomaticTarget] : XCTAssertNil failed: "2026-09-09 21:00:00 +0000" - Expiry must not be the automatic-reset clock
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:29: error: -[ResetRadarTests.AcceptanceAuditTests testA01GrantExpiryMustNotBecomeAutomaticTarget] : XCTAssertEqual failed: ("nil") is not equal to ("Optional(2026-09-09 21:00:00 +0000)")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA01GrantExpiryMustNotBecomeAutomaticTarget]' failed (0.099 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA02GrantDistributionTimeMustNotBecomeAutomaticTarget]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:33: error: -[ResetRadarTests.AcceptanceAuditTests testA02GrantDistributionTimeMustNotBecomeAutomaticTarget] : XCTAssertNil failed: "2026-09-09 21:00:00 +0000" - Grant availability is not an automatic quota reset
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA02GrantDistributionTimeMustNotBecomeAutomaticTarget]' failed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA03CancellationMustSuppressScheduledReset]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:37: error: -[ResetRadarTests.AcceptanceAuditTests testA03CancellationMustSuppressScheduledReset] : XCTAssertEqual failed: ("scheduled") is not equal to ("cancelled")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA03CancellationMustSuppressScheduledReset]' failed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA04SpeculativeForecastMustNotGenerateExactCountdown]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:41: error: -[ResetRadarTests.AcceptanceAuditTests testA04SpeculativeForecastMustNotGenerateExactCountdown] : XCTAssertNotEqual failed: ("scheduled") is equal to ("scheduled")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA04SpeculativeForecastMustNotGenerateExactCountdown]' failed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA05CommunityFeedTitleCannotProveCompletion]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:45: error: -[ResetRadarTests.AcceptanceAuditTests testA05CommunityFeedTitleCannotProveCompletion] : XCTAssertNotEqual failed: ("announcedComplete") is equal to ("announcedComplete")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA05CommunityFeedTitleCannotProveCompletion]' failed (0.000 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA06QuotedOriginalMustOverrideConflictingSummary]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:49: error: -[ResetRadarTests.AcceptanceAuditTests testA06QuotedOriginalMustOverrideConflictingSummary] : XCTAssertNotEqual failed: ("scheduled") is equal to ("scheduled")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA06QuotedOriginalMustOverrideConflictingSummary]' failed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA07ISO8601OffsetTimestampResolves]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:52: error: -[ResetRadarTests.AcceptanceAuditTests testA07ISO8601OffsetTimestampResolves] : XCTAssertEqual failed: ("unresolved("No unambiguous date, time, and zone")") is not equal to ("exact(2026-09-09 21:00:00 +0000)")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA07ISO8601OffsetTimestampResolves]' failed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA08Invalid14pmMustRemainUnresolved]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:56: error: -[ResetRadarTests.AcceptanceAuditTests testA08Invalid14pmMustRemainUnresolved] : failed - 14pm was accepted as an exact time: exact(2026-09-10 21:00:00 +0000)
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA08Invalid14pmMustRemainUnresolved]' failed (0.000 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA09FractionalAtomPublicationMustParse]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:61: error: -[ResetRadarTests.AcceptanceAuditTests testA09FractionalAtomPublicationMustParse] : XCTAssertNotNil failed
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA09FractionalAtomPublicationMustParse]' failed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA10CDATAContentMustSurvive]' started.
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA10CDATAContentMustSurvive]' passed (0.000 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA11NestedAtomContentMustPreserveLeadingWords]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:70: error: -[ResetRadarTests.AcceptanceAuditTests testA11NestedAtomContentMustPreserveLeadingWords] : XCTAssertTrue failed - Body lost text:
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA11NestedAtomContentMustPreserveLeadingWords]' failed (0.000 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA12ExpiredGrantMustNotRemainActiveBecauseFresh]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:75: error: -[ResetRadarTests.AcceptanceAuditTests testA12ExpiredGrantMustNotRemainActiveBecauseFresh] : XCTAssertNil failed: "ResetEvent(id: "status-123456", revision: 1, kind: ResetRadar.ResetKind.bankedResetGrant, state: ResetRadar.EventState.unresolved, precision: ResetRadar.TimePrecision.unknown, title: "发现重置机会", titleEN: "Reset opportunity", targetAt: nil, windowStart: nil, windowEnd: nil, expiresAt: Optional(2026-09-09 11:59:59 +0000), products: ["codex"], audience: "partial", evidence: [ResetRadar.Evidence(sourceID: "modelyard", itemID: "audit", sourceKind: ResetRadar.SourceKind.communityFeed, url: Optional(https://x.com/a/status/123456), publishedAt: Optional(2026-09-09 12:00:00 +0000), fetchedAt: 2026-09-09 12:00:00 +0000, excerpt: "Codex usage news Some users receive a banked reset", contentHash: "52a087580d9d1aa89f6a08d2110563e3e39f20251dfb697f5e78079cc00bdfbd")], firstSeenAt: 2026-09-09 12:00:00 +0000, updatedAt: 2026-09-09 12:00:00 +0000)"
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA12ExpiredGrantMustNotRemainActiveBecauseFresh]' failed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA13FutureResetTakesPriority]' started.
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA13FutureResetTakesPriority]' passed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA14Automatic24HourDisplayCharacterization]' started.
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA14Automatic24HourDisplayCharacterization]' passed (0.000 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA15UndatedGrant24HourDisplayCharacterization]' started.
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA15UndatedGrant24HourDisplayCharacterization]' passed (0.000 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA16ConflictingSourcesMustNotOverwriteConfirmedTime]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:99: error: -[ResetRadarTests.AcceptanceAuditTests testA16ConflictingSourcesMustNotOverwriteConfirmedTime] : XCTAssertEqual failed: ("scheduled") is not equal to ("unresolved") - Conflict should require review
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA16ConflictingSourcesMustNotOverwriteConfirmedTime]' failed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA17AudienceCorrectionsMustPersist]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:107: error: -[ResetRadarTests.AcceptanceAuditTests testA17AudienceCorrectionsMustPersist] : XCTAssertEqual failed: ("all") is not equal to ("partial")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA17AudienceCorrectionsMustPersist]' failed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA18ExpiryCorrectionsMustPersist]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:116: error: -[ResetRadarTests.AcceptanceAuditTests testA18ExpiryCorrectionsMustPersist] : XCTAssertEqual failed: ("Optional(2026-09-09 21:00:00 +0000)") is not equal to ("Optional(2026-09-09 23:00:00 +0000)")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA18ExpiryCorrectionsMustPersist]' failed (0.000 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA19SameTextFromTwoSourcesRetainsBothProvenances]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:123: error: -[ResetRadarTests.AcceptanceAuditTests testA19SameTextFromTwoSourcesRetainsBothProvenances] : XCTAssertEqual failed: ("1") is not equal to ("2")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA19SameTextFromTwoSourcesRetainsBothProvenances]' failed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA20OlderPreferencesPreserveLocale]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:133: error: -[ResetRadarTests.AcceptanceAuditTests testA20OlderPreferencesPreserveLocale] : XCTAssertEqual failed: ("zhHans") is not equal to ("en")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA20OlderPreferencesPreserveLocale]' failed (0.003 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA21UnsupportedPreferenceSchemaIsNotAccepted]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:141: error: -[ResetRadarTests.AcceptanceAuditTests testA21UnsupportedPreferenceSchemaIsNotAccepted] : XCTAssertNotEqual failed: ("999") is equal to ("999")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA21UnsupportedPreferenceSchemaIsNotAccepted]' failed (0.001 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA22RecoveredBackupMustSurviveNextSave]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:156: error: -[ResetRadarTests.AcceptanceAuditTests testA22RecoveredBackupMustSurviveNextSave] : XCTAssertEqual failed: ("zhHans") is not equal to ("en")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA22RecoveredBackupMustSurviveNextSave]' failed (0.002 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA23UndatedGrantShouldTriggerDiscoveryCallback]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:165: error: -[ResetRadarTests.AcceptanceAuditTests testA23UndatedGrantShouldTriggerDiscoveryCallback] : XCTAssertGreaterThan failed: ("0") is not greater than ("0") - A hidden app will never surface this opportunity
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA23UndatedGrantShouldTriggerDiscoveryCallback]' failed (0.012 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA24RetryAfterMustBeHonored]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:173: error: -[ResetRadarTests.AcceptanceAuditTests testA24RetryAfterMustBeHonored] : XCTAssertGreaterThanOrEqual failed: ("300.00042402744293") is less than ("3500.0")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA24RetryAfterMustBeHonored]' failed (0.003 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA25ManualRefreshCannotBypassActiveRateLimit]' started.
+/private/tmp/reset-radar-audit.w1toLt/ResetRadarTests/AcceptanceAuditTests.swift:182: error: -[ResetRadarTests.AcceptanceAuditTests testA25ManualRefreshCannotBypassActiveRateLimit] : XCTAssertEqual failed: ("8") is not equal to ("4")
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA25ManualRefreshCannotBypassActiveRateLimit]' failed (0.004 seconds).
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA26FreshTransportDoesNotAdvanceUnknownUpstream]' started.
+Test Case '-[ResetRadarTests.AcceptanceAuditTests testA26FreshTransportDoesNotAdvanceUnknownUpstream]' passed (0.002 seconds).
+Test Suite 'AcceptanceAuditTests' failed at 2026-09-09 12:32:11.786.
+	 Executed 26 tests, with 22 failures (0 unexpected) in 0.139 (0.140) seconds
+Test Suite 'ResetRadarPackageTests.xctest' failed at 2026-09-09 12:32:11.786.
+	 Executed 26 tests, with 22 failures (0 unexpected) in 0.139 (0.140) seconds
+Test Suite 'Selected tests' failed at 2026-09-09 12:32:11.786.
+	 Executed 26 tests, with 22 failures (0 unexpected) in 0.139 (0.141) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

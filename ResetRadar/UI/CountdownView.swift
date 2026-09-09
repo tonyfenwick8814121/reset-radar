@@ -4,6 +4,7 @@ struct CountdownView: View {
     @ObservedObject var model: MonitorModel
     let onMiniimize: () -> Void
     let onHide: () -> Void
+    let onManualEntry: () -> Void
     let onExpansionChange: (Bool) -> Void
 
     private var locale: AppLocale { model.preferences.locale }
@@ -13,7 +14,7 @@ struct CountdownView: View {
         TimelineView(.periodic(from: .now, by: 1)) { timeline in
             card(now: timeline.date)
         }
-        .frame(width: 412, height: model.preferences.detailsExpanded ? 500 : 294)
+        .frame(width: 412, height: model.preferences.detailsExpanded ? 610 : 294)
         .environment(\.locale, Locale(identifier: locale.rawValue))
     }
 
@@ -91,11 +92,11 @@ struct CountdownView: View {
     }
 
     @ViewBuilder private func countdown(now: Date) -> some View {
-        if let target = event?.targetAt {
+        if let target = event?.countdownAt {
             Text(Self.remaining(target.timeIntervalSince(now)))
                 .font(.system(size: 67, weight: .bold, design: .rounded).monospacedDigit())
                 .foregroundStyle(.primary)
-                .minimumScaleFactor(0.72)
+                .minimumScaleFactor(0.58)
                 .lineLimit(1)
                 .contentTransition(.numericText())
         } else {
@@ -109,8 +110,13 @@ struct CountdownView: View {
 
     private var targetLine: some View {
         Group {
-            if let target = event?.targetAt {
-                Text("\(Copy.text(.expected, locale)) · \(Self.format(target, zoneID: model.preferences.displayTimeZone, locale: locale))")
+            if let target = event?.countdownAt {
+                let prefix = event?.kind == .bankedResetGrant
+                    ? (locale == .zhHans ? "距失效" : "Expires in")
+                    : (locale == .zhHans ? "预计重置" : "Expected reset")
+                Text("\(prefix) · \(Self.format(target, zoneID: model.preferences.displayTimeZone, locale: locale)) · \(timeZoneLabel(for: target))")
+            } else if event?.kind == .bankedResetGrant {
+                Text(locale == .zhHans ? "可手动使用 · 有效期未知" : "Available to use manually · Expiry unknown")
             } else {
                 Text(Copy.text(.monitoring, locale))
             }
@@ -121,11 +127,17 @@ struct CountdownView: View {
     }
 
     private var queryLine: some View {
-        HStack(spacing: 5) {
-            Circle().fill(healthColor).frame(width: 6, height: 6)
-            Text("\(Copy.text(.lastCheck, locale)) · \(relativeDate(model.mostRecentAttempt))")
-            Text("· \(healthText)")
-            if model.isRefreshing { ProgressView().controlSize(.mini) }
+        VStack(spacing: 2) {
+            HStack(spacing: 5) {
+                Circle().fill(healthColor).frame(width: 6, height: 6)
+                Text("\(Copy.text(.lastCheck, locale)) · \(relativeDate(model.mostRecentAttempt))")
+                Text("· \(healthText)")
+                if model.isRefreshing { ProgressView().controlSize(.mini) }
+            }
+            if let message = model.storageMessage {
+                Text(locale == .zhHans ? "本地数据：\(message)" : "Local data: \(message)")
+                    .foregroundStyle(.red).lineLimit(1)
+            }
         }
         .font(.system(size: 10, weight: .medium))
         .foregroundStyle(.tertiary)
@@ -133,14 +145,18 @@ struct CountdownView: View {
     }
 
     private var detailsPanel: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 10) {
             Divider().opacity(0.5)
             HStack {
                 Text(Copy.text(.sources, locale)).font(.system(size: 11, weight: .bold))
                 Spacer()
+                Button(locale == .zhHans ? "手动录入" : "Add manually", action: onManualEntry)
+                    .buttonStyle(.plain).font(.system(size: 10, weight: .semibold)).foregroundStyle(accent)
                 Button(Copy.text(.refresh, locale)) { Task { await model.refresh() } }
                     .buttonStyle(.plain).font(.system(size: 10, weight: .semibold)).foregroundStyle(accent)
             }
+            if let event { eventDetails(event) }
             HStack {
                 Toggle(Copy.text(.sound, locale), isOn: Binding(
                     get: { model.preferences.audioEnabled },
@@ -172,7 +188,7 @@ struct CountdownView: View {
                     Circle().fill(status?.result == .success ? Color.green : (status?.result == .failed ? Color.red : Color.gray)).frame(width: 7, height: 7)
                     Text(source.name).font(.system(size: 10, weight: .medium))
                     Spacer()
-                    Text(status?.message ?? Copy.text(.statusUnknown, locale)).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(sourceStatusText(status)).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             HStack {
@@ -190,8 +206,22 @@ struct CountdownView: View {
             }
             Text(Copy.text(.communityRelay, locale) + " · " + Copy.text(.statusUnknown, locale))
                 .font(.system(size: 9)).foregroundStyle(.tertiary)
+            if !historyEvents.isEmpty {
+                Divider().opacity(0.4)
+                Text(locale == .zhHans ? "最近记录" : "Recent history").font(.system(size: 10, weight: .bold))
+                ForEach(historyEvents.prefix(3)) { item in
+                    HStack {
+                        Text(historyTitle(item)).font(.system(size: 9, weight: .medium)).lineLimit(1)
+                        Spacer()
+                        Text(Self.format(item.updatedAt, zoneID: model.preferences.displayTimeZone, locale: locale))
+                            .font(.system(size: 8)).foregroundStyle(.tertiary)
+                    }
+                }
+            }
         }
         .padding(.horizontal, 4)
+        }
+        .frame(maxHeight: 395)
     }
 
     private var detailsToggle: some View {
@@ -214,6 +244,79 @@ struct CountdownView: View {
             .buttonStyle(.plain).foregroundStyle(.secondary).help(help).accessibilityLabel(help)
     }
 
+    private func eventDetails(_ event: ResetEvent) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(productText(event.products)).font(.system(size: 9, weight: .bold))
+                    .padding(.horizontal, 7).padding(.vertical, 3).background(accent.opacity(0.12), in: Capsule())
+                Text(audienceText(event.audience)).font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
+                Spacer()
+                if let url = event.bestEvidence?.url {
+                    Link(locale == .zhHans ? "查看原文" : "View source", destination: url)
+                        .font(.system(size: 9, weight: .semibold))
+                }
+            }
+            if let excerpt = event.bestEvidence?.excerpt, !excerpt.isEmpty {
+                Text(excerpt).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(2)
+                    .textSelection(.enabled)
+            }
+            HStack {
+                if event.kind == .bankedResetGrant {
+                    Button(locale == .zhHans ? "标记已使用" : "Mark used") { model.markEvent(event.id, as: .used) }
+                } else if event.state == .dueUnconfirmed {
+                    Button(locale == .zhHans ? "确认已重置" : "Confirm reset") { model.markEvent(event.id, as: .announcedComplete) }
+                }
+                Button(locale == .zhHans ? "不再显示" : "Dismiss") { model.markEvent(event.id, as: .dismissed) }
+            }
+            .buttonStyle(.borderless)
+            .font(.system(size: 9, weight: .semibold))
+        }
+        .padding(8)
+        .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var historyEvents: [ResetEvent] {
+        model.events.filter { item in
+            item.id != event?.id && [.announcedComplete, .expired, .used, .dismissed, .cancelled, .archived].contains(item.state)
+        }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private func historyTitle(_ event: ResetEvent) -> String {
+        let type = event.kind == .bankedResetGrant ? (locale == .zhHans ? "手动机会" : "Manual opportunity") : (locale == .zhHans ? "自动重置" : "Automatic reset")
+        let state: String
+        switch event.state {
+        case .announcedComplete: state = locale == .zhHans ? "已确认" : "confirmed"
+        case .expired: state = locale == .zhHans ? "已失效" : "expired"
+        case .used: state = locale == .zhHans ? "已使用" : "used"
+        case .dismissed: state = locale == .zhHans ? "已忽略" : "dismissed"
+        case .cancelled: state = locale == .zhHans ? "已取消" : "cancelled"
+        case .archived: state = locale == .zhHans ? "未确认归档" : "archived unconfirmed"
+        default: state = event.state.rawValue
+        }
+        return "\(type) · \(state)"
+    }
+
+    private func sourceStatusText(_ status: SourceStatus?) -> String {
+        guard let status else { return Copy.text(.statusUnknown, locale) }
+        if status.result == .failed { return status.message ?? Copy.text(.sourceFailed, locale) }
+        if let count = status.itemCount { return locale == .zhHans ? "已连接 · \(count) 条" : "Connected · \(count) items" }
+        return status.result == .success ? Copy.text(.sourceReachable, locale) : Copy.text(.statusUnknown, locale)
+    }
+
+    private func productText(_ products: [String]) -> String {
+        products.map {
+            switch $0 { case "chatgpt-work": return "ChatGPT Work"; case "chatgpt": return "ChatGPT"; default: return "Codex" }
+        }.joined(separator: " + ")
+    }
+
+    private func audienceText(_ audience: String) -> String {
+        switch audience {
+        case "all": return locale == .zhHans ? "全部用户" : "All users"
+        case "partial": return locale == .zhHans ? "部分用户" : "Some users"
+        default: return locale == .zhHans ? "适用人群未知" : "Audience unknown"
+        }
+    }
+
     private var accent: Color {
         guard let event else { return Color(red: 0.43, green: 0.47, blue: 0.53) }
         if event.kind == .bankedResetGrant { return Color(red: 0.12, green: 0.68, blue: 0.45) }
@@ -232,7 +335,11 @@ struct CountdownView: View {
 
     private var statusTitle: String {
         guard let event else { return Copy.text(.noAnnouncement, locale) }
-        if event.kind == .bankedResetGrant { return Copy.text(.opportunity, locale) }
+        if event.kind == .bankedResetGrant {
+            return event.expiresAt == nil
+                ? (locale == .zhHans ? "手动重置机会 · 有效期未知" : "Manual reset opportunity · Expiry unknown")
+                : (locale == .zhHans ? "手动重置机会 · 距失效" : "Manual reset opportunity · Expires in")
+        }
         if event.kind == .lead { return Copy.text(.vagueLead, locale) }
         if event.targetAt.map({ $0 <= Date() }) == true {
             return locale == .zhHans ? "到达预计时间 · 等待确认" : "Estimated time reached · Awaiting confirmation"
@@ -258,7 +365,16 @@ struct CountdownView: View {
     private var isPreview: Bool { event?.evidence.contains { $0.sourceID == "preview" } == true }
 
     private var timeZoneLabel: String {
-        TimeZone(identifier: model.preferences.displayTimeZone)?.localizedName(for: .shortStandard, locale: Locale(identifier: locale.rawValue)) ?? model.preferences.displayTimeZone
+        timeZoneLabel(for: event?.countdownAt ?? Date())
+    }
+
+    private func timeZoneLabel(for date: Date) -> String {
+        guard let zone = TimeZone(identifier: model.preferences.displayTimeZone) else { return model.preferences.displayTimeZone }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: locale.rawValue)
+        formatter.timeZone = zone
+        formatter.dateFormat = "zzz"
+        return "\(formatter.string(from: date)) · \(model.preferences.displayTimeZone)"
     }
 
     private func relativeDate(_ date: Date?) -> String {
@@ -271,11 +387,10 @@ struct CountdownView: View {
 
     static func remaining(_ interval: TimeInterval) -> String {
         let seconds = max(0, Int(ceil(interval)))
-        let days = seconds / 86_400
-        let hours = (seconds % 86_400) / 3_600
+        let hours = seconds / 3_600
         let minutes = (seconds % 3_600) / 60
         let rest = seconds % 60
-        return days > 0 ? String(format: "%d天 %02d:%02d:%02d", days, hours, minutes, rest) : String(format: "%02d:%02d:%02d", hours, minutes, rest)
+        return String(format: "%02d:%02d:%02d", hours, minutes, rest)
     }
 
     static func format(_ date: Date, zoneID: String, locale: AppLocale) -> String {
