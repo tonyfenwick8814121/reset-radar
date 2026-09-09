@@ -1,0 +1,290 @@
+import SwiftUI
+
+struct CountdownView: View {
+    @ObservedObject var model: MonitorModel
+    let onMiniimize: () -> Void
+    let onHide: () -> Void
+    let onExpansionChange: (Bool) -> Void
+
+    private var locale: AppLocale { model.preferences.locale }
+    private var event: ResetEvent? { model.activeEvent }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            card(now: timeline.date)
+        }
+        .frame(width: 412, height: model.preferences.detailsExpanded ? 500 : 294)
+        .environment(\.locale, Locale(identifier: locale.rawValue))
+    }
+
+    private func card(now: Date) -> some View {
+        VStack(spacing: 0) {
+            topBar
+            Spacer(minLength: 12)
+            statusHeader
+            countdown(now: now)
+            targetLine
+            queryLine
+            Spacer(minLength: 8)
+            if model.preferences.detailsExpanded { detailsPanel }
+            detailsToggle
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 16)
+        .padding(.bottom, 10)
+        .background(cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).strokeBorder(.white.opacity(0.18), lineWidth: 1))
+        .shadow(color: accent.opacity(0.2), radius: 28, y: 12)
+        .padding(12)
+    }
+
+    @ViewBuilder private var cardBackground: some View {
+        if #available(macOS 26.0, *) {
+            Color.clear.glassEffect(.regular, in: .rect(cornerRadius: 28))
+        } else {
+            Rectangle().fill(.ultraThinMaterial)
+        }
+    }
+
+    private var topBar: some View {
+        HStack(spacing: 8) {
+            Label("Reset Radar", systemImage: "scope")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+            if isPreview {
+                Text(Copy.text(.preview, locale)).font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 3).background(.purple, in: Capsule())
+            }
+            Spacer()
+            localeControl
+            iconButton("arrow.down.right.and.arrow.up.left", help: Copy.text(.minimize, locale), action: onMiniimize)
+            iconButton("xmark", help: Copy.text(.hide, locale), action: onHide)
+        }
+    }
+
+    private var localeControl: some View {
+        HStack(spacing: 2) {
+            localeButton("中", locale: .zhHans)
+            localeButton("EN", locale: .en)
+        }
+        .padding(2)
+        .background(.black.opacity(0.08), in: Capsule())
+    }
+
+    private func localeButton(_ title: String, locale value: AppLocale) -> some View {
+        Button(title) { model.setLocale(value) }
+            .buttonStyle(.plain)
+            .font(.system(size: 10, weight: locale == value ? .bold : .medium))
+            .foregroundStyle(locale == value ? .white : .secondary)
+            .padding(.horizontal, 7).padding(.vertical, 4)
+            .background(locale == value ? accent : .clear, in: Capsule())
+            .accessibilityLabel(value == .zhHans ? "中文" : "English")
+    }
+
+    private var statusHeader: some View {
+        HStack(spacing: 7) {
+            Image(systemName: statusIcon).font(.system(size: 15, weight: .bold))
+            Text(statusTitle).font(.system(size: 15, weight: .bold, design: .rounded))
+        }
+        .foregroundStyle(accent)
+    }
+
+    @ViewBuilder private func countdown(now: Date) -> some View {
+        if let target = event?.targetAt {
+            Text(Self.remaining(target.timeIntervalSince(now)))
+                .font(.system(size: 67, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(.primary)
+                .minimumScaleFactor(0.72)
+                .lineLimit(1)
+                .contentTransition(.numericText())
+        } else {
+            Text("––:––:––")
+                .font(.system(size: 52, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(.secondary.opacity(0.55))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+    }
+
+    private var targetLine: some View {
+        Group {
+            if let target = event?.targetAt {
+                Text("\(Copy.text(.expected, locale)) · \(Self.format(target, zoneID: model.preferences.displayTimeZone, locale: locale))")
+            } else {
+                Text(Copy.text(.monitoring, locale))
+            }
+        }
+        .font(.system(size: 12, weight: .medium, design: .rounded))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+    }
+
+    private var queryLine: some View {
+        HStack(spacing: 5) {
+            Circle().fill(healthColor).frame(width: 6, height: 6)
+            Text("\(Copy.text(.lastCheck, locale)) · \(relativeDate(model.mostRecentAttempt))")
+            Text("· \(healthText)")
+            if model.isRefreshing { ProgressView().controlSize(.mini) }
+        }
+        .font(.system(size: 10, weight: .medium))
+        .foregroundStyle(.tertiary)
+        .padding(.top, 7)
+    }
+
+    private var detailsPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Divider().opacity(0.5)
+            HStack {
+                Text(Copy.text(.sources, locale)).font(.system(size: 11, weight: .bold))
+                Spacer()
+                Button(Copy.text(.refresh, locale)) { Task { await model.refresh() } }
+                    .buttonStyle(.plain).font(.system(size: 10, weight: .semibold)).foregroundStyle(accent)
+            }
+            HStack {
+                Toggle(Copy.text(.sound, locale), isOn: Binding(
+                    get: { model.preferences.audioEnabled },
+                    set: { model.setAudioEnabled($0) }
+                )).toggleStyle(.switch).controlSize(.mini).font(.system(size: 10, weight: .semibold))
+                Slider(value: Binding(
+                    get: { model.preferences.volume },
+                    set: { model.setVolume($0) }
+                ), in: 0...1)
+                    .frame(width: 64)
+                    .controlSize(.mini)
+                Spacer()
+                Button(Copy.text(.testSound, locale)) { SoundService.preview(volume: model.preferences.volume) }
+                    .buttonStyle(.plain).font(.system(size: 10, weight: .semibold)).foregroundStyle(accent)
+            }
+            HStack {
+                Toggle(Copy.text(.launchAtLogin, locale), isOn: Binding(
+                    get: { model.preferences.launchAtLogin },
+                    set: { model.setLaunchAtLogin($0) }
+                )).toggleStyle(.switch).controlSize(.mini).font(.system(size: 10, weight: .semibold))
+                Spacer()
+                if let message = model.launchAtLoginMessage {
+                    Text(message).font(.system(size: 8)).foregroundStyle(.red).lineLimit(1)
+                }
+            }
+            ForEach(FeedSource.defaults) { source in
+                let status = model.statuses.first { $0.sourceID == source.id }
+                HStack(spacing: 8) {
+                    Circle().fill(status?.result == .success ? Color.green : (status?.result == .failed ? Color.red : Color.gray)).frame(width: 7, height: 7)
+                    Text(source.name).font(.system(size: 10, weight: .medium))
+                    Spacer()
+                    Text(status?.message ?? Copy.text(.statusUnknown, locale)).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            HStack {
+                Text(locale == .zhHans ? "显示时区" : "Display time zone").font(.system(size: 10, weight: .semibold))
+                Spacer()
+                Menu(timeZoneLabel) {
+                    ForEach(Self.favoriteZones, id: \.self) { zone in
+                        Button(zone) { model.setTimeZone(zone) }
+                    }
+                    Divider()
+                    ForEach(TimeZone.knownTimeZoneIdentifiers.filter { !Self.favoriteZones.contains($0) }, id: \.self) { zone in
+                        Button(zone) { model.setTimeZone(zone) }
+                    }
+                }.menuStyle(.borderlessButton).frame(width: 170)
+            }
+            Text(Copy.text(.communityRelay, locale) + " · " + Copy.text(.statusUnknown, locale))
+                .font(.system(size: 9)).foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private var detailsToggle: some View {
+        Button {
+            let expanded = !model.preferences.detailsExpanded
+            withAnimation(.snappy(duration: 0.28)) { model.setExpanded(expanded) }
+            onExpansionChange(expanded)
+        } label: {
+            Image(systemName: model.preferences.detailsExpanded ? "chevron.up" : "chevron.down")
+                .font(.system(size: 12, weight: .bold)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 24)
+        }
+        .buttonStyle(.plain)
+        .help(Copy.text(model.preferences.detailsExpanded ? .collapse : .details, locale))
+        .accessibilityLabel(Copy.text(model.preferences.detailsExpanded ? .collapse : .details, locale))
+    }
+
+    private func iconButton(_ icon: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: icon).frame(width: 22, height: 22) }
+            .buttonStyle(.plain).foregroundStyle(.secondary).help(help).accessibilityLabel(help)
+    }
+
+    private var accent: Color {
+        guard let event else { return Color(red: 0.43, green: 0.47, blue: 0.53) }
+        if event.kind == .bankedResetGrant { return Color(red: 0.12, green: 0.68, blue: 0.45) }
+        if event.targetAt.map({ $0 <= Date() }) == true { return Color(red: 0.78, green: 0.58, blue: 0.18) }
+        if event.kind == .lead { return Color(red: 0.55, green: 0.40, blue: 0.86) }
+        if let target = event.targetAt, target.timeIntervalSinceNow <= 300 { return Color(red: 0.96, green: 0.28, blue: 0.26) }
+        return Color(red: 0.95, green: 0.58, blue: 0.12)
+    }
+
+    private var statusIcon: String {
+        if event?.kind == .bankedResetGrant { return "sparkles" }
+        if event?.kind == .lead { return "questionmark.bubble.fill" }
+        if event?.targetAt != nil { return "alarm.fill" }
+        return "moon.stars.fill"
+    }
+
+    private var statusTitle: String {
+        guard let event else { return Copy.text(.noAnnouncement, locale) }
+        if event.kind == .bankedResetGrant { return Copy.text(.opportunity, locale) }
+        if event.kind == .lead { return Copy.text(.vagueLead, locale) }
+        if event.targetAt.map({ $0 <= Date() }) == true {
+            return locale == .zhHans ? "到达预计时间 · 等待确认" : "Estimated time reached · Awaiting confirmation"
+        }
+        return Copy.text(.announced, locale)
+    }
+
+    private var healthColor: Color {
+        if model.isRefreshing { return .yellow }
+        if model.statuses.isEmpty { return .gray }
+        if model.failedSourceCount == model.statuses.count { return .red }
+        if model.failedSourceCount > 0 { return .orange }
+        return .green
+    }
+
+    private var healthText: String {
+        if model.statuses.isEmpty { return Copy.text(.statusUnknown, locale) }
+        if model.failedSourceCount == model.statuses.count { return Copy.text(.queryFailed, locale) }
+        if model.failedSourceCount > 0 { return Copy.text(.queryPartial, locale) }
+        return Copy.text(.querySuccess, locale)
+    }
+
+    private var isPreview: Bool { event?.evidence.contains { $0.sourceID == "preview" } == true }
+
+    private var timeZoneLabel: String {
+        TimeZone(identifier: model.preferences.displayTimeZone)?.localizedName(for: .shortStandard, locale: Locale(identifier: locale.rawValue)) ?? model.preferences.displayTimeZone
+    }
+
+    private func relativeDate(_ date: Date?) -> String {
+        guard let date else { return Copy.text(.never, locale) }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: locale.rawValue)
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    static func remaining(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(ceil(interval)))
+        let days = seconds / 86_400
+        let hours = (seconds % 86_400) / 3_600
+        let minutes = (seconds % 3_600) / 60
+        let rest = seconds % 60
+        return days > 0 ? String(format: "%d天 %02d:%02d:%02d", days, hours, minutes, rest) : String(format: "%02d:%02d:%02d", hours, minutes, rest)
+    }
+
+    static func format(_ date: Date, zoneID: String, locale: AppLocale) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: locale.rawValue)
+        formatter.timeZone = TimeZone(identifier: zoneID) ?? .current
+        formatter.dateFormat = locale == .zhHans ? "M月d日 EEE HH:mm" : "EEE, MMM d · HH:mm"
+        return formatter.string(from: date)
+    }
+
+    static let favoriteZones = ["Asia/Shanghai", "America/Los_Angeles", "America/New_York", "Europe/London", "Europe/Paris", "Asia/Tokyo", "Australia/Sydney"]
+}

@@ -1,0 +1,16 @@
+{
+  "fixtureOnly": true,
+  "description": "合成时间解析验收夹具，非真实公告。expectedState 是期望结果，尚无原生解析器。",
+  "cases": [
+    {"id":"summer-pt","input":"Reset on September 9, 2026 at 14:00 PT.","expectedState":"scheduled","expectedUTC":"2026-09-09T21:00:00Z","expectedShanghai":"2026-09-10T05:00:00+08:00"},
+    {"id":"winter-pt","input":"Reset on December 9, 2026 at 14:00 PT.","expectedState":"scheduled","expectedUTC":"2026-12-09T22:00:00Z","expectedShanghai":"2026-12-10T06:00:00+08:00"},
+    {"id":"tomorrow-anchor","input":"Reset tomorrow at 2pm PT.","publishedAtUTC":"2026-09-09T06:30:00Z","verifiedContextZone":"America/Los_Angeles","expectedState":"scheduled","expectedUTC":"2026-09-09T21:00:00Z"},
+    {"id":"pst-in-summer","input":"Reset on September 9, 2026 at 14:00 PST.","verifiedContextZone":"America/Los_Angeles","expectedState":"unresolved","reason":"explicit PST conflicts with regional daylight time"},
+    {"id":"no-zone","input":"Reset tomorrow at 2pm.","publishedAtUTC":"2026-09-09T06:30:00Z","expectedState":"unresolved"},
+    {"id":"vague","input":"Hopefully resetting tomorrow morning.","expectedState":"unresolved"},
+    {"id":"spring-gap","input":"2026-03-08 02:30 America/Los_Angeles","expectedState":"unresolved"},
+    {"id":"fall-repeat","input":"2026-11-01 01:30 America/Los_Angeles","expectedState":"unresolved"},
+    {"id":"grant","input":"Some users received a banked reset.","expectedKind":"banked_reset_grant","expectedAudience":"partial","expectedAutomaticResetUTC":null},
+    {"id":"propagation","input":"Reset is propagating over the next hour.","publishedAtUTC":"2026-09-09T06:30:00Z","fetchedAtUTC":"2026-09-09T08:30:00Z","expectedAutomaticResetUTC":null,"reason":"do not anchor rollout to fetch time"}
+  ]
+}

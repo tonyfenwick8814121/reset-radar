@@ -1,0 +1,17 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+      - name: Swift tests
+        run: swift test
+      - name: Build application bundle
+        run: ./scripts/build.sh release
+      - name: Verify bundle signature
+        run: codesign --verify --deep --strict "dist/Reset Radar.app"
