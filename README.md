@@ -1,44 +1,61 @@
 # 归零 · Reset Radar
 
-设计 v2：默认免费公开订阅，免 X 登录和 API 密钥；折叠玻璃浮窗、浮窗内「中 / EN」、分状态色。
+[中文](#中文) · [English](#english)
 
-一款独立于 Codex 的 macOS 额度重置公告提醒器。关注公开预告，将明确的重置时间换算成本地时间，以悬浮窗倒计时提醒。
+## 中文
 
-**当前交付：0.2.1 macOS 原生预览版，适合小范围测试。** 已接入四个免费公开 RSS/Atom 来源，具备本地倒计时、浮窗/迷你窗、双语、时区、来源健康、持久化和本地通知。自动重置与可手动使用的重置机会有独立的时间含义、提醒文案和结束流程；详情可核对原文、产品及适用人群，也可手动录入公告。尚未进行 Developer ID 签名、公证或发布 GitHub Release。网页原型中的公告、查询结果和时间均为演示数据。
+免费的 macOS 菜单栏工具，监测 ChatGPT / Codex 公开额度重置公告，用悬浮倒计时和声音提醒你。
 
-## 本机运行
+### 功能
 
-要求 macOS 14 或更高版本，以及 Xcode 26 / Swift 6 工具链。无需 X 账号、API 密钥或付费服务。
+- 自动重置、手动重置及补偿机会提醒，支持手动录入公告。
+- 悬浮窗、迷你窗、可选置顶；中英文切换和本地时区显示。
+- 检测间隔可选 1 / 5 / 10 / 15 / 20 分钟，默认 10 分钟；显示查询结果与来源状态。
+- 无需 X 登录或 API 密钥，不调用 AI，不消耗 ChatGPT / Codex 额度。
 
-```bash
-git clone https://github.com/tonyfenwick8814121/reset-radar.git
-cd reset-radar
-swift test
-./scripts/run.sh
-```
+### 下载与环境
 
-构建后的应用位于 `dist/Reset Radar.app`。首次启动会显示在屏幕中央；关闭浮窗后可从菜单栏准星图标恢复。菜单中的“载入演示预告”只用于体验倒计时，窗口会持续显示“演示数据”。
+**[下载 v0.2.2 · Apple 芯片版](https://github.com/tonyfenwick8814121/reset-radar/releases/download/v0.2.2/Reset-Radar-0.2.2-arm64.zip)**
 
-倒计时只显示累计小时、分钟和秒，例如一周显示 `168:00:00`，不显示天数，也不会在 99 小时截断。自动重置到点后显示“等待确认”；确认完成或 24 小时仍未确认后回到监测并保留历史。手动机会有明确失效时间时显示“距失效”，到期后立即回到监测；也可标记“已使用”或“不再显示”。
+需要 **macOS 14+、Apple 芯片（M 系列）和网络连接**。解压后将 `Reset Radar.app` 拖入“应用程序”并打开，无需安装开发工具。
 
-普通查询成功、失败、重复消息、含糊线索、历史完成与取消消息均不响铃。只有本轮合并后发现新的有效机会，或有效机会的时间/适用范围发生重要更正，才在声音开启时响一次。提前和到点通知只显示视觉提示；“试听”按钮仍可主动播放声音。这里的有效机会是公告层面的判断，不能证明个人账户适用或额度已恢复。已使用、忽略和已确认的事件不会被后续订阅重放重新激活。
+当前为预览版，未做 Apple Developer ID 签名或公证，首次打开可能被 macOS 拦截。公开转引可能延迟或遗漏，额度与补偿资格请以账号实际状态为准。
 
-朋友试用及正式发布条件见 [发布准备说明](docs/RELEASE_READINESS.md)。
+### 版本更新
 
-## 数据与费用
+**v0.2.2 · 2026-09-13**
 
-应用每秒只在本地重算倒计时。社区订阅默认每 5 分钟检查，官方状态每 15 分钟、官方新闻每 30 分钟，并遵守服务端缓存。运行时不调用 OpenAI 模型，不消耗 ChatGPT/Codex 订阅额度。社区转引可能延迟、遗漏或分类错误，界面会把网络可达和上游覆盖分开表达。
+- 补充公开 JSON 来源，改进时间待定公告识别与补偿资格说明。
+- 增加置顶开关、单色菜单栏状态角标、检测间隔设置和快捷查询。
+- 完善完成与归档流程，避免重复提醒。
 
-- [PRD](docs/PRD.md)：产品范围、监测策略、窗口行为、提醒和文案。
-- [Sol 开工说明](docs/START_HERE.md)：环境检查、首个交付切片与开发额度记录方式。
-- [开发计划](docs/DEVELOPMENT_PLAN.md)：分阶段任务、依赖、验证与模型建议。
-- [实现规格](docs/IMPLEMENTATION_SPEC.md)：数据结构、时间解析、调度、文件布局。
-- [验收清单](docs/ACCEPTANCE.md)：可执行的场景和预期结果。
-- [来源核查](docs/SOURCES.md)：2026-09-09 核查结果与尚未验证的条件。
-- [交付验证](docs/DELIVERY_REPORT.md)：原生测试、真机操作、发布包和已知边界。
-- [独立验收](docs/ACCEPTANCE_AUDIT.md) 与 [修复验证](docs/REMEDIATION_REPORT.md)：问题证据、修复结果及仍需外部条件的项目。
-- [交互原型](design/prototype.html)：直接用浏览器打开，无需安装依赖。
+[完整版本记录](CHANGELOG.md) · [所有下载](https://github.com/tonyfenwick8814121/reset-radar/releases)
 
-开发阶段推荐 **Sol / high**；窗口跨桌面、时间歧义和提醒状态逻辑有疑难时，使用 **Astra / high** 定点解决。日常运行不调用任何模型，不占 ChatGPT/Codex 对话额度。
+## English
 
-当前代码已完成验收后的核心可靠性修复。原型表达外观和操作，不作为真实原生置顶、休眠唤醒或通知能力的验证。
+A free macOS menu-bar app that monitors public ChatGPT / Codex quota reset announcements with floating countdowns and sound alerts.
+
+### Features
+
+- Automatic reset, manual reset and compensation alerts; manual announcement entry.
+- Floating and mini windows, optional always-on-top, Chinese / English and local time zones.
+- Checks every 1 / 5 / 10 / 15 / 20 minutes (default: 10), with check results and source status.
+- No X login, API key, AI calls or ChatGPT / Codex quota usage.
+
+### Download & requirements
+
+**[Download v0.2.2 · Apple silicon](https://github.com/tonyfenwick8814121/reset-radar/releases/download/v0.2.2/Reset-Radar-0.2.2-arm64.zip)**
+
+Requires **macOS 14+, Apple silicon (M series) and internet access**. Unzip, drag `Reset Radar.app` into Applications and open it. No developer tools required.
+
+This preview is not Developer ID signed or notarized; macOS may block the first launch. Public relays may delay or miss announcements. Check your account for actual quota and compensation eligibility.
+
+### Updates
+
+**v0.2.2 · 2026-09-13**
+
+- Added a public JSON source; improved time-pending announcements and compensation eligibility wording.
+- Added pin controls, monochrome menu-bar badges, polling settings and quick refresh.
+- Improved completion and archival handling to avoid duplicate alerts.
+
+[Version history](CHANGELOG.md) · [All downloads](https://github.com/tonyfenwick8814121/reset-radar/releases)

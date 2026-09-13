@@ -162,6 +162,52 @@ final class MonitorModelTests: XCTestCase {
         XCTAssertEqual(model.events.first { $0.id == id }?.state, .used)
     }
 
+    func testRealAnnouncementPathAlertsOnceAndCompletionClearsIt() async throws {
+        MonitorURLProtocol.mode = .confirmed
+        let model = makeModel()
+        var discoveries = 0
+        model.onNewActionableEvent = { _ in discoveries += 1 }
+        await model.refresh()
+        await model.refresh()
+        XCTAssertEqual(discoveries, 1)
+        XCTAssertEqual(model.activeEvent?.kind, .lead)
+        XCTAssertNil(model.activeEvent?.targetAt)
+        MonitorURLProtocol.mode = .confirmedComplete
+        await model.refresh()
+        XCTAssertEqual(discoveries, 1)
+        XCTAssertNil(model.activeEvent)
+        await model.refresh()
+        XCTAssertNil(model.activeEvent)
+        XCTAssertEqual(discoveries, 1)
+    }
+
+    func testAnnouncementAlreadyCompletedInNewestFirstFeedNeverAlerts() async {
+        MonitorURLProtocol.mode = .confirmedComplete
+        let model = makeModel()
+        var discoveries = 0
+        model.onNewActionableEvent = { _ in discoveries += 1 }
+        await model.refresh()
+        XCTAssertEqual(discoveries, 0)
+        XCTAssertNil(model.activeEvent)
+    }
+
+    func testIntervalAndPinDefaultsMigrateAndCooldownSurvivesChanges() async throws {
+        let prefs = try JSONDecoder().decode(UserPreferences.self, from: Data("{}".utf8))
+        XCTAssertEqual(prefs.checkIntervalMinutes, 10)
+        XCTAssertFalse(prefs.alwaysOnTop)
+        MonitorURLProtocol.mode = .rateLimit
+        let model = makeModel()
+        await model.refresh()
+        let cooldowns = model.statuses.map(\.nextCheckAt)
+        for minutes in [1, 5, 10, 15, 20] {
+            model.setCheckInterval(minutes)
+            XCTAssertEqual(model.checkInterval(for: FeedSource.defaults[0]), Double(minutes * 60))
+            XCTAssertEqual(model.statuses.map(\.nextCheckAt), cooldowns)
+        }
+        model.setCheckInterval(2)
+        XCTAssertEqual(model.preferences.checkIntervalMinutes, 20)
+    }
+
     private func makeModel(scheduler: RecordingScheduler = RecordingScheduler()) -> MonitorModel {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         return MonitorModel(store: LocalStore(directory: directory), client: makeClient(), scheduler: scheduler)
@@ -183,7 +229,7 @@ actor RecordingScheduler: ReminderScheduling {
 }
 
 private final class MonitorURLProtocol: URLProtocol {
-    enum Mode { case empty, grant, rateLimit, serverError, complete, lead, cancelled, automatic, revised, mixed, expiredGrant, futureGrant }
+    enum Mode { case confirmed, confirmedComplete, empty, grant, rateLimit, serverError, complete, lead, cancelled, automatic, revised, mixed, expiredGrant, futureGrant }
     static var mode: Mode = .empty
     static var requestCount = 0
     static let futureTarget = Date().addingTimeInterval(7200)
@@ -221,7 +267,18 @@ private final class MonitorURLProtocol: URLProtocol {
             "<item><guid>fresh-grant</guid><title>Codex reset news</title><description>\(body)</description><pubDate>\(published)</pubDate></item>"
         }.joined()
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data("<rss><channel>\(item)</channel></rss>".utf8))
+        if request.url?.path == "/api/feed" {
+            var tweets: [[String: String]] = []
+            if Self.mode == .confirmed || Self.mode == .confirmedComplete {
+                if Self.mode == .confirmedComplete {
+                    tweets.append(["id": "200", "url": "https://x.com/thsottiaux/status/200", "text": "Reset all propagated. Sweet dreams.", "at": ISO8601DateFormatter().string(from: Date())])
+                }
+                tweets.append(["id": "100", "url": "https://x.com/thsottiaux/status/100", "text": "Hi Astra users. A reset is also landing by midnight today.", "at": ISO8601DateFormatter().string(from: Date().addingTimeInterval(-60))])
+            }
+            client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: ["stale": false, "tweets": tweets]))
+        } else {
+            client?.urlProtocol(self, didLoad: Data("<rss><channel>\(item)</channel></rss>".utf8))
+        }
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

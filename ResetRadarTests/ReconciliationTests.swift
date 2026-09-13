@@ -87,6 +87,7 @@ final class ReconciliationTests: XCTestCase {
         grant.state = .available
         grant.targetAt = nil
         grant.expiresAt = nil
+        grant.firstSeenAt = now
         grant.evidence = [Evidence(sourceID: "rss", itemID: "fresh", sourceKind: .communityFeed, url: nil, publishedAt: now.addingTimeInterval(-60), fetchedAt: now, excerpt: "", contentHash: "fresh")]
         XCTAssertEqual(MonitorModel.selectActiveEvent([grant], now: now)?.id, grant.id)
     }
@@ -135,6 +136,24 @@ final class ReconciliationTests: XCTestCase {
         XCTAssertEqual(MonitorModel.selectActiveEvent([due], now: now)?.id, due.id)
         due.targetAt = now.addingTimeInterval(-90_000)
         XCTAssertNil(MonitorModel.selectActiveEvent([due], now: now))
+    }
+
+    @MainActor
+    func testUndatedOpportunityArchives24HoursAfterDiscoveryWithoutReplayResurrection() {
+        let now = Date()
+        var grant = event(source: "rss", hash: "grant", target: now)
+        grant.kind = .bankedResetGrant
+        grant.state = .available
+        grant.targetAt = nil
+        grant.firstSeenAt = now
+        grant.evidence = [Evidence(sourceID: "rss", itemID: "fresh", sourceKind: .communityFeed, url: nil, publishedAt: now.addingTimeInterval(-3600), fetchedAt: now, excerpt: "", contentHash: "grant")]
+        var events = [grant]
+        XCTAssertNotNil(MonitorModel.selectActiveEvent(events, now: now.addingTimeInterval(86_399)))
+        XCTAssertTrue(MonitorModel.advanceLifecycle(&events, now: now.addingTimeInterval(86_400)))
+        XCTAssertEqual(events[0].state, .archived)
+        _ = EventReconciler().merge(grant, into: &events)
+        XCTAssertEqual(events[0].state, .archived)
+        XCTAssertNil(MonitorModel.selectActiveEvent(events, now: now.addingTimeInterval(86_401)))
     }
 
     private func event(source: String, hash: String, target: Date) -> ResetEvent {

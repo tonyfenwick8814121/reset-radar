@@ -57,6 +57,7 @@ struct ResetEvent: Identifiable, Codable, Hashable, Sendable {
     var revision: Int
     var kind: ResetKind
     var timeMeaning: TimeMeaning = .unknown
+    var confirmedAnnouncement: Bool = false
     var state: EventState
     var precision: TimePrecision
     var title: String
@@ -83,11 +84,12 @@ struct ResetEvent: Identifiable, Codable, Hashable, Sendable {
 extension ResetEvent {
     enum CodingKeys: String, CodingKey {
         case id, revision, kind, timeMeaning, state, precision, title, titleEN, targetAt
-        case windowStart, windowEnd, expiresAt, products, audience, evidence, firstSeenAt, updatedAt
+        case windowStart, windowEnd, expiresAt, products, audience, evidence, firstSeenAt, updatedAt, confirmedAnnouncement
     }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        confirmedAnnouncement = try values.decodeIfPresent(Bool.self, forKey: .confirmedAnnouncement) ?? false
         id = try values.decode(String.self, forKey: .id)
         revision = try values.decodeIfPresent(Int.self, forKey: .revision) ?? 1
         kind = try values.decode(ResetKind.self, forKey: .kind)
@@ -112,6 +114,7 @@ extension ResetEvent {
 
     func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(confirmedAnnouncement, forKey: .confirmedAnnouncement)
         try values.encode(id, forKey: .id)
         try values.encode(revision, forKey: .revision)
         try values.encode(kind, forKey: .kind)
@@ -184,12 +187,15 @@ struct UserPreferences: Codable, Equatable, Sendable {
     var windowMode = "main"
     var mainWindowFrame: WindowFrame?
     var miniWindowFrame: WindowFrame?
+    var alwaysOnTop = false
+    var checkIntervalMinutes = 10
+    static let checkIntervals = [1, 5, 10, 15, 20]
 
     static let defaults = UserPreferences()
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion, locale, displayTimeZone, audioEnabled, volume, launchAtLogin
-        case reminderOffsets, detailsExpanded, windowMode, mainWindowFrame, miniWindowFrame
+        case reminderOffsets, detailsExpanded, windowMode, mainWindowFrame, miniWindowFrame, alwaysOnTop, checkIntervalMinutes
     }
 
     init() {}
@@ -210,6 +216,9 @@ struct UserPreferences: Codable, Equatable, Sendable {
         windowMode = try values.decodeIfPresent(String.self, forKey: .windowMode) ?? "main"
         mainWindowFrame = try values.decodeIfPresent(WindowFrame.self, forKey: .mainWindowFrame)
         miniWindowFrame = try values.decodeIfPresent(WindowFrame.self, forKey: .miniWindowFrame)
+        alwaysOnTop = try values.decodeIfPresent(Bool.self, forKey: .alwaysOnTop) ?? false
+        let minutes = try values.decodeIfPresent(Int.self, forKey: .checkIntervalMinutes) ?? 10
+        checkIntervalMinutes = Self.checkIntervals.contains(minutes) ? minutes : 10
         schemaVersion = Self.currentSchemaVersion
     }
 }

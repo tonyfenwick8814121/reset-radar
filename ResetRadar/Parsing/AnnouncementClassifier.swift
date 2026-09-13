@@ -8,8 +8,15 @@ struct AnnouncementClassifier {
         let combined = "\(item.title) \(item.body)"
         let lower = combined.lowercased()
         let resetWords = lower.contains("reset") || lower.contains("额度重置")
-        let productWords = lower.contains("chatgpt") || lower.contains("codex") || lower.contains("usage limit") || lower.contains("weekly limit")
+        let originalURL = originalPostURL(in: combined)
+        let postURL = originalURL ?? item.url
+        let trustedAuthor = ["x.com", "twitter.com"].contains(postURL?.host?.lowercased() ?? "") &&
+            postURL?.path.lowercased().hasPrefix("/thsottiaux/status/") == true && source.kind == .communityFeed
+        let explicitReset = lower.range(of: #"(?:reset (?:is |is also )?(?:landing|lands)|(?:limits|quotas) will reset|(?:we(?:'re| are| will)|i(?:'m| am| will)) (?:resetting|reset)|reset all propagated)"#, options: .regularExpression) != nil
+        let productWords = (trustedAuthor && explicitReset && (lower.contains("astra users") || lower.contains("reset all propagated"))) || lower.contains("chatgpt") || lower.contains("codex") || lower.contains("usage limit") || lower.contains("weekly limit")
         guard resetWords && productWords else { return nil }
+        let unrelatedResets = ["password reset", "reset password", "reset your password", "reset the password", "reset settings", "reset context", "factory reset"]
+        guard !unrelatedResets.contains(where: lower.contains) else { return nil }
 
         let grantMarkers = ["banked reset", "reset grant", "reset credit", "reset opportunity", "manual reset", "one-time reset", "重置机会", "手动重置"]
         let isGrant = grantMarkers.contains { lower.contains($0) }
@@ -17,9 +24,9 @@ struct AnnouncementClassifier {
         let isGrantExpiry = isGrant && expiryMarkers.contains { lower.contains($0) }
         let forwardMarkers = [" will ", "lands ", "landing ", "tomorrow", "later today", "end of day", "planned", "upcoming", "next hour"]
         let isForwardLooking = forwardMarkers.contains { lower.contains($0) }
-        let completeMarkers = ["it is done", "already reset", "returned to 100%", "back to 100%", "reset propagated", "limits reset for", "usage reset for"]
+        let completeMarkers = ["it is done", "already reset", "returned to 100%", "back to 100%", "reset propagated", "reset all propagated", "limits reset for", "usage reset for"]
         let cancelMarkers = ["cancelled", "canceled", "will not happen", "called off", "no longer planned", "预告取消", "不会重置"]
-        let uncertaintyMarkers = ["probability", "chance of", "forecast", "prediction", "rumor", "rumour", "maybe", "likely", "unlikely", "joke", "no reset is planned", "可能性", "预测", "传闻"]
+        let uncertaintyMarkers = ["probability", "chance of", "forecast", "prediction", "rumor", "rumour", "maybe", "might", "could reset", "if we", "would reset", "wish", "hoping", "please reset", "likely", "unlikely", "joke", "no reset is planned", "可能性", "预测", "传闻"]
         let isCancelled = cancelMarkers.contains { lower.contains($0) }
         let isUncertain = uncertaintyMarkers.contains { lower.contains($0) }
         let isComplete = !isForwardLooking && !isCancelled && !isUncertain && completeMarkers.contains { lower.contains($0) }
@@ -71,7 +78,6 @@ struct AnnouncementClassifier {
         }
         let kind: ResetKind = isGrant ? .bankedResetGrant : (isForwardLooking && target == nil && !isCancelled && !isUncertain ? .lead : .automaticReset)
         let hash = SHA256.hash(data: Data(combined.utf8)).map { String(format: "%02x", $0) }.joined()
-        let originalURL = originalPostURL(in: combined)
         let canonical = canonicalID(item, originalURL: originalURL)
         let evidence = Evidence(
             sourceID: source.id,
@@ -80,7 +86,7 @@ struct AnnouncementClassifier {
             url: originalURL ?? item.url,
             publishedAt: item.freshnessDate,
             fetchedAt: fetchedAt,
-            excerpt: String(combined.prefix(280)),
+            excerpt: String(combined.prefix(1600)),
             contentHash: hash
         )
         return ResetEvent(
@@ -88,6 +94,7 @@ struct AnnouncementClassifier {
             revision: 1,
             kind: kind,
             timeMeaning: timeMeaning,
+            confirmedAnnouncement: trustedAuthor && explicitReset && !isUncertain && !isCancelled,
             state: state,
             precision: precision,
             title: isGrant ? "发现重置机会" : "额度重置预告",
@@ -96,8 +103,8 @@ struct AnnouncementClassifier {
             windowStart: windowStart,
             windowEnd: nil,
             expiresAt: expiresAt,
-            products: lower.contains("chatgpt work") ? ["chatgpt-work"] : (lower.contains("codex") ? ["codex"] : ["chatgpt"]),
-            audience: lower.contains("all users") ? "all" : ((isGrant && lower.contains("some ")) || lower.contains("some users") || lower.contains("500k") ? "partial" : "unknown"),
+            products: lower.contains("chatgpt work") ? ["chatgpt-work"] : (lower.contains("codex") ? ["codex"] : (trustedAuthor && explicitReset ? ["astra"] : ["chatgpt"])),
+            audience: (isGrant && lower.contains("affected") && (lower.contains("not fully applying") || lower.contains("failed") || lower.contains("affected time window"))) ? "affected-reset-users" : lower.contains("all users") ? "all" : ((isGrant && lower.contains("some ")) || lower.contains("some users") || lower.contains("500k") ? "partial" : "unknown"),
             evidence: [evidence],
             firstSeenAt: fetchedAt,
             updatedAt: fetchedAt

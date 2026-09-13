@@ -49,10 +49,11 @@ struct EventReconciler {
         let windowChanged = (incoming.windowStart != nil && stored.windowStart != incoming.windowStart) ||
             (incoming.windowEnd != nil && stored.windowEnd != incoming.windowEnd)
         let meaningChanged = stored.kind != incoming.kind || stored.timeMeaning != incoming.timeMeaning ||
-            stored.state != incoming.state || stored.targetAt != incoming.targetAt ||
+            stored.state != incoming.state || stored.confirmedAnnouncement != incoming.confirmedAnnouncement || stored.targetAt != incoming.targetAt ||
             stored.precision != incoming.precision || audienceChanged || expiryChanged || windowChanged
         if meaningChanged {
             stored.revision += 1
+            stored.confirmedAnnouncement = incoming.confirmedAnnouncement
             stored.kind = incoming.kind
             stored.timeMeaning = incoming.timeMeaning
             stored.state = incoming.state

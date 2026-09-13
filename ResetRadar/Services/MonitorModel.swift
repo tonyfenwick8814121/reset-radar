@@ -44,21 +44,34 @@ final class MonitorModel: ObservableObject {
             $0.kind == .bankedResetGrant &&
             ($0.state == .available || $0.state == .unresolved) &&
             ($0.expiresAt.map { $0 > now } ??
-             ($0.bestEvidence?.publishedAt.map { $0 >= now.addingTimeInterval(-86_400) } == true))
+             Self.isFreshUndated($0, now: now))
         }
             .sorted { $0.updatedAt > $1.updatedAt }
         if let grant = validGrants.first { return grant }
         return events.filter {
             $0.kind == .lead &&
             $0.state == .unresolved &&
-            $0.bestEvidence?.publishedAt.map { $0 >= now.addingTimeInterval(-86_400) } == true
+            Self.isFreshUndated($0, now: now)
         }.sorted { $0.updatedAt > $1.updatedAt }.first
+    }
+
+    static func isFreshUndated(_ event: ResetEvent, now: Date) -> Bool {
+        guard let published = event.bestEvidence?.publishedAt else { return false }
+        return published >= event.firstSeenAt.addingTimeInterval(-86_400) &&
+            published <= now.addingTimeInterval(300) && event.firstSeenAt.addingTimeInterval(86_400) > now
     }
 
     @discardableResult
     static func advanceLifecycle(_ events: inout [ResetEvent], now: Date) -> Bool {
         var changed = false
         for index in events.indices {
+            if events[index].countdownAt == nil,
+               [.available, .unresolved].contains(events[index].state),
+               !Self.isFreshUndated(events[index], now: now) {
+                events[index].state = .archived
+                events[index].updatedAt = now
+                changed = true
+            }
             if events[index].kind == .automaticReset,
                let target = events[index].targetAt {
                 if events[index].state == .scheduled && target <= now {
@@ -141,7 +154,7 @@ final class MonitorModel: ObservableObject {
                     status.result = .success
                     status.lastTransportSuccessAt = batch.fetchedAt
                     status.latestCoveredPublicationAt = batch.items.compactMap(\.freshnessDate).max() ?? status.latestCoveredPublicationAt
-                    status.nextCheckAt = batch.fetchedAt.addingTimeInterval(source.interval)
+                    status.nextCheckAt = batch.fetchedAt.addingTimeInterval(checkInterval(for: source))
                     status.consecutiveFailures = 0
                     status.etag = batch.etag ?? status.etag
                     status.lastModified = batch.lastModified ?? status.lastModified
@@ -150,7 +163,7 @@ final class MonitorModel: ObservableObject {
                     status.cooldownUntil = nil
                 }
                 guard !batch.notModified else { continue }
-                for item in batch.items {
+                for item in batch.items.sorted(by: { ($0.freshnessDate ?? .distantPast) < ($1.freshnessDate ?? .distantPast) }) {
                     guard let candidate = classifier.classify(item, source: source, fetchedAt: batch.fetchedAt) else { continue }
                     if candidate.state == .announcedComplete || candidate.state == .cancelled {
                         _ = associateTerminalAnnouncement(candidate)
@@ -162,7 +175,7 @@ final class MonitorModel: ObservableObject {
                     status.result = .failed
                     status.consecutiveFailures += 1
                     let now = Date()
-                    let normalBackoff = backoff(for: status.consecutiveFailures, base: source.interval)
+                    let normalBackoff = backoff(for: status.consecutiveFailures, base: checkInterval(for: source))
                     if case FeedError.http(let code, let retryAfter) = error, code == 429 || code == 403 {
                         let delay = max(normalBackoff, retryAfter ?? (code == 403 ? 86_400 : normalBackoff))
                         status.cooldownUntil = now.addingTimeInterval(delay)
@@ -196,6 +209,28 @@ final class MonitorModel: ObservableObject {
             storageMessage = error.localizedDescription
         }
         await scheduler.reconcile(events: events, preferences: preferences, now: Date())
+    }
+
+    func checkInterval(for source: FeedSource) -> TimeInterval {
+        TimeInterval(preferences.checkIntervalMinutes * 60)
+    }
+
+    func setCheckInterval(_ minutes: Int) {
+        guard UserPreferences.checkIntervals.contains(minutes) else { return }
+        preferences.checkIntervalMinutes = minutes
+        for index in statuses.indices {
+            // Changing cadence never bypasses a server cooldown.
+            if statuses[index].cooldownUntil == nil {
+                statuses[index].nextCheckAt = statuses[index].lastAttemptAt?.addingTimeInterval(TimeInterval(minutes * 60))
+            }
+        }
+        preferencesDidChange()
+    }
+
+    func setAlwaysOnTop(_ enabled: Bool) {
+        preferences.alwaysOnTop = enabled
+        preferencesDidChange()
+        onPreferencesChanged?(preferences)
     }
 
     func setLocale(_ locale: AppLocale) {
@@ -406,7 +441,10 @@ final class MonitorModel: ObservableObject {
         }
     }
 
-    private func isActionable(_ event: ResetEvent, now: Date) -> Bool {
+    func isActionable(_ event: ResetEvent, now: Date) -> Bool {
+        if event.kind == .lead && event.confirmedAnnouncement && event.state == .unresolved {
+            return Self.isFreshUndated(event, now: now)
+        }
         if event.kind == .automaticReset {
             return event.state == .scheduled && event.precision == .exact &&
                 event.targetAt.map { $0 > now } == true
@@ -415,7 +453,7 @@ final class MonitorModel: ObservableObject {
             guard event.state == .available else { return false }
             guard event.windowStart.map({ $0 <= now }) ?? true else { return false }
             if let expiry = event.expiresAt { return expiry > now }
-            return event.bestEvidence?.publishedAt.map { $0 >= now.addingTimeInterval(-86_400) } == true
+            return Self.isFreshUndated(event, now: now)
         }
         return false
     }
@@ -423,8 +461,12 @@ final class MonitorModel: ObservableObject {
     private func associateTerminalAnnouncement(_ announcement: ResetEvent) -> ResetEvent? {
         let matching = events.indices.filter { index in
             let event = events[index]
-            return event.kind == .automaticReset &&
-                (event.state == .scheduled || event.state == .dueUnconfirmed) &&
+            return (event.kind == .automaticReset || (event.kind == .lead && event.confirmedAnnouncement)) &&
+                (event.state == .scheduled || event.state == .dueUnconfirmed || event.state == .unresolved) &&
+                event.bestEvidence?.publishedAt.map { date in
+                    guard let terminalDate = announcement.bestEvidence?.publishedAt else { return false }
+                    return terminalDate >= date && terminalDate.timeIntervalSince(date) <= 86_400
+                } == true &&
                 !Set(event.products).isDisjoint(with: announcement.products)
         }
         guard matching.count == 1, let index = matching.first, events[index].id != announcement.id else { return nil }

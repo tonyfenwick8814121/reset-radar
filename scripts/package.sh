@@ -14,6 +14,6 @@ fi
 
 rm -f "$archive" "$archive.sha256"
 ditto -c -k --sequesterRsrc --keepParent "$app_dir" "$archive"
-shasum -a 256 "$archive" > "$archive.sha256"
+(cd "$project_dir/dist" && shasum -a 256 "${archive:t}") > "$archive.sha256"
 codesign --verify --deep --strict "$app_dir"
 printf '%s\n%s\n' "$archive" "$archive.sha256"

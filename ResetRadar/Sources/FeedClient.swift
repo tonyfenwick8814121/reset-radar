@@ -11,7 +11,7 @@ actor FeedClient {
     func fetch(_ source: FeedSource, previous: SourceStatus?) async throws -> FeedBatch {
         var request = URLRequest(url: source.url, cachePolicy: .reloadRevalidatingCacheData, timeoutInterval: 15)
         request.setValue("ResetRadar/0.1 (+https://github.com/)", forHTTPHeaderField: "User-Agent")
-        request.setValue("application/rss+xml, application/atom+xml, application/xml, text/xml", forHTTPHeaderField: "Accept")
+        request.setValue("application/json, application/rss+xml, application/atom+xml, application/xml, text/xml", forHTTPHeaderField: "Accept")
         if let etag = previous?.etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
         if let modified = previous?.lastModified { request.setValue(modified, forHTTPHeaderField: "If-Modified-Since") }
 
@@ -24,7 +24,7 @@ actor FeedClient {
             throw FeedError.http(http.statusCode, retryAfter: Self.retryDelay(http.value(forHTTPHeaderField: "Retry-After")))
         }
         guard data.count <= maximumBytes else { throw FeedError.oversized }
-        let items = try XMLFeedParser().parse(data)
+        let items = try source.id == "codex-reset-json" ? Self.parsePublicFeed(data) : XMLFeedParser().parse(data)
         return FeedBatch(
             items: items,
             fetchedAt: Date(),
@@ -32,6 +32,24 @@ actor FeedClient {
             lastModified: http.value(forHTTPHeaderField: "Last-Modified"),
             notModified: false
         )
+    }
+
+    // Read original posts only; relay-generated event classifications are not evidence.
+    static func parsePublicFeed(_ data: Data) throws -> [FeedItem] {
+        struct PublicFeed: Decodable {
+            struct Post: Decodable { let id: String; let url: URL; let text: String; let at: String }
+            let stale: Bool
+            let tweets: [Post]
+        }
+        let feed = try JSONDecoder().decode(PublicFeed.self, from: data)
+        guard !feed.stale else { throw FeedError.invalidResponse }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        return try feed.tweets.map { post in
+            guard let date = fractional.date(from: post.at) ?? plain.date(from: post.at) else { throw FeedError.invalidResponse }
+            return FeedItem(id: post.id, title: "", body: post.text, url: post.url, publishedAt: date)
+        }
     }
 
     private static func retryDelay(_ value: String?) -> TimeInterval? {

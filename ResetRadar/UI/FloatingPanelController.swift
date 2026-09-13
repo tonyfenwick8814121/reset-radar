@@ -19,9 +19,9 @@ final class FloatingPanelController {
             backing: .buffered,
             defer: false
         )
-        panel.level = .floating
+        panel.level = .normal
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.isFloatingPanel = true
+        panel.isFloatingPanel = false
         panel.hidesOnDeactivate = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -43,7 +43,13 @@ final class FloatingPanelController {
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
     }
 
+    func applyPinPreference() {
+        panel.level = model.preferences.alwaysOnTop ? .floating : .normal
+        panel.isFloatingPanel = model.preferences.alwaysOnTop
+    }
+
     func showMain(center: Bool = false, persistMode: Bool = true) {
+        applyPinPreference()
         let wasMini = mode == "mini"
         mode = "main"
         if persistMode { model.setWindowMode(mode) }
@@ -65,6 +71,7 @@ final class FloatingPanelController {
     }
 
     func showMini() {
+        applyPinPreference()
         mode = "mini"
         model.setWindowMode(mode)
         panel.setContentSize(NSSize(width: 280, height: 165))

@@ -69,6 +69,7 @@ struct MiniView: View {
     private var statusText: String {
         guard let event = model.activeEvent else { return Copy.text(.noAnnouncement, model.preferences.locale) }
         if event.kind == .bankedResetGrant {
+            if event.audience == "affected-reset-users" { return model.preferences.locale == .zhHans ? "重置补偿 · 请核对资格" : "Compensation · Check eligibility" }
             return model.preferences.locale == .zhHans ? "手动重置机会" : "Manual reset opportunity"
         }
         if event.state == .dueUnconfirmed || event.targetAt.map({ $0 <= Date() }) == true {

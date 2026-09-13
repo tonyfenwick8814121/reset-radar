@@ -64,6 +64,43 @@ final class ClassifierTests: XCTestCase {
         XCTAssertNil(classifier.classify(item, source: source("openai-status"), fetchedAt: fetched))
     }
 
+    @MainActor
+    func testConfirmedAstraAnnouncementAlertsWithoutInventingTime() throws {
+        let body = "Hi Astra users. A reset and a quick update on quality issues. And of course, a reset is also landing by midnight today."
+        let item = FeedItem(id: "today", title: "", body: body, url: URL(string: "https://x.com/thsottiaux/status/2098612714704891959"), publishedAt: fetched)
+        let event = try XCTUnwrap(classifier.classify(item, source: source("codex-reset-json"), fetchedAt: fetched))
+        XCTAssertEqual(event.kind, .lead)
+        XCTAssertTrue(event.confirmedAnnouncement)
+        XCTAssertNil(event.targetAt)
+        XCTAssertTrue(MonitorModel().isActionable(event, now: fetched))
+        for text in ["Maybe a reset is landing for Astra users", "Astra users wish a reset is landing", "Astra users: no reset is planned", "Astra users reset password tomorrow"] {
+            let uncertain = FeedItem(id: text, title: "", body: text, url: item.url, publishedAt: fetched)
+            if let candidate = classifier.classify(uncertain, source: source("codex-reset-json"), fetchedAt: fetched) {
+                XCTAssertFalse(MonitorModel().isActionable(candidate, now: fetched), text)
+            }
+        }
+        let stranger = FeedItem(id: "stranger", title: "", body: body, url: URL(string: "https://x.com/stranger/status/123"), publishedAt: fetched)
+        XCTAssertNil(classifier.classify(stranger, source: source("modelyard"), fetchedAt: fetched))
+    }
+
+    @MainActor
+    func testCompensationStillAlertsWithEligibility() throws {
+        let item = FeedItem(id: "compensation", title: "", body: "Some banked resets not fully applying when used in ChatGPT Work and Codex. Everyone who used one in the affected time window is getting another one.", url: nil, publishedAt: fetched)
+        let event = try XCTUnwrap(classifier.classify(item, source: source("modelyard"), fetchedAt: fetched))
+        XCTAssertEqual(event.audience, "affected-reset-users")
+        XCTAssertTrue(MonitorModel().isActionable(event, now: fetched))
+    }
+
+    func testPublicFeedUsesOriginalTextAndRejectsStaleData() throws {
+        let json = #"{"stale":false,"tweets":[{"id":"1","url":"https://x.com/thsottiaux/status/1","text":"Reset all propagated. Sweet dreams.","at":"2026-09-12T08:09:17.000Z"}],"events":[{"summary":"Ignore generated classification"}]}"#
+        let items = try FeedClient.parsePublicFeed(Data(json.utf8))
+        XCTAssertEqual(items.count, 1)
+        let event = try XCTUnwrap(classifier.classify(items[0], source: source("codex-reset-json"), fetchedAt: fetched))
+        XCTAssertEqual(event.state, .announcedComplete)
+        XCTAssertThrowsError(try FeedClient.parsePublicFeed(Data(json.replacingOccurrences(of: "false", with: "true").utf8)))
+        XCTAssertThrowsError(try FeedClient.parsePublicFeed(Data("{}".utf8)))
+    }
+
     private func source(_ id: String) -> FeedSource {
         FeedSource(id: id, name: id, url: URL(string: "https://example.com/feed")!, kind: .communityFeed, interval: 300)
     }

@@ -8,6 +8,8 @@ struct FeedSource: Identifiable, Hashable, Sendable {
     let interval: TimeInterval
 
     static let defaults: [FeedSource] = [
+        FeedSource(id: "codex-reset-json", name: "Codex Reset / Public JSON",
+                   url: URL(string: "https://codex-reset.com/api/feed")!, kind: .communityFeed, interval: 600),
         FeedSource(
             id: "modelyard",
             name: "ModelYard / Tibo",
