@@ -450,7 +450,7 @@ final class MonitorModel: ObservableObject {
                 event.targetAt.map { $0 > now } == true
         }
         if event.kind == .bankedResetGrant {
-            guard event.state == .available else { return false }
+            guard event.state == .available || (event.state == .unresolved && event.confirmedAnnouncement) else { return false }
             guard event.windowStart.map({ $0 <= now }) ?? true else { return false }
             if let expiry = event.expiresAt { return expiry > now }
             return Self.isFreshUndated(event, now: now)

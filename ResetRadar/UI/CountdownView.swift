@@ -117,7 +117,9 @@ struct CountdownView: View {
                     : (locale == .zhHans ? "预计重置" : "Expected reset")
                 Text("\(prefix) · \(Self.format(target, zoneID: model.preferences.displayTimeZone, locale: locale)) · \(timeZoneLabel(for: target))")
             } else if event?.kind == .bankedResetGrant {
-                Text(event?.audience == "affected-reset-users" ? (locale == .zhHans ? "曾在故障期间使用重置的用户 · 请核对账号" : "For affected reset users · Check your account") : (locale == .zhHans ? "请核对账号是否可用 · 有效期未知" : "Check eligibility in your account · Expiry unknown"))
+                Text(event?.state == .unresolved
+                     ? (locale == .zhHans ? "Plus／Pro／Business 发放中 · 请在账号内核对" : "Rolling out to Plus / Pro / Business · Check your account")
+                     : (event?.audience == "affected-reset-users" ? (locale == .zhHans ? "曾在故障期间使用重置的用户 · 请核对账号" : "For affected reset users · Check your account") : (locale == .zhHans ? "请核对账号是否可用 · 有效期未知" : "Check eligibility in your account · Expiry unknown")))
             } else if event?.kind == .lead {
                 Text(locale == .zhHans ? "重置时间或时区待确认" : "Reset time or time zone pending")
             } else {
@@ -274,7 +276,7 @@ struct CountdownView: View {
                     .textSelection(.enabled)
             }
             HStack {
-                if event.kind == .bankedResetGrant {
+                if event.kind == .bankedResetGrant && event.state == .available {
                     Button(locale == .zhHans ? "标记已使用" : "Mark used") { model.markEvent(event.id, as: .used) }
                 } else if event.state == .dueUnconfirmed {
                     Button(locale == .zhHans ? "确认已重置" : "Confirm reset") { model.markEvent(event.id, as: .announcedComplete) }
@@ -318,13 +320,14 @@ struct CountdownView: View {
 
     private func productText(_ products: [String]) -> String {
         products.map {
-            switch $0 { case "astra": return "Astra"; case "chatgpt-work": return "ChatGPT Work"; case "chatgpt": return "ChatGPT"; default: return "Codex" }
+            switch $0 { case "unspecified": return locale == .zhHans ? "产品待确认" : "Product pending"; case "astra": return "Astra"; case "chatgpt-work": return "ChatGPT Work"; case "chatgpt": return "ChatGPT"; default: return "Codex" }
         }.joined(separator: " + ")
     }
 
     private func audienceText(_ audience: String) -> String {
         switch audience {
         case "all": return locale == .zhHans ? "全部用户" : "All users"
+        case "paid-plans": return "Plus / Pro / Business"
         case "affected-reset-users": return locale == .zhHans ? "仅补偿故障期间使用重置的用户" : "Only users who used a reset during the incident"
         case "partial": return locale == .zhHans ? "部分用户" : "Some users"
         default: return locale == .zhHans ? "适用人群未知" : "Audience unknown"
@@ -351,6 +354,7 @@ struct CountdownView: View {
         guard let event else { return Copy.text(.noAnnouncement, locale) }
         if event.kind == .bankedResetGrant {
             if event.audience == "affected-reset-users" { return locale == .zhHans ? "手动重置补偿 · 请核对资格" : "Reset compensation · Check eligibility" }
+            if event.state == .unresolved { return locale == .zhHans ? "手动重置机会发放中" : "Banked reset rolling out" }
             return event.expiresAt == nil
                 ? (locale == .zhHans ? "手动重置机会 · 有效期未知" : "Manual reset opportunity · Expiry unknown")
                 : (locale == .zhHans ? "手动重置机会 · 距失效" : "Manual reset opportunity · Expires in")

@@ -13,7 +13,11 @@ struct AnnouncementClassifier {
         let trustedAuthor = ["x.com", "twitter.com"].contains(postURL?.host?.lowercased() ?? "") &&
             postURL?.path.lowercased().hasPrefix("/thsottiaux/status/") == true && source.kind == .communityFeed
         let explicitReset = lower.range(of: #"(?:reset (?:is |is also )?(?:landing|lands)|(?:limits|quotas) will reset|(?:we(?:'re| are| will)|i(?:'m| am| will)) (?:resetting|reset)|reset all propagated)"#, options: .regularExpression) != nil
-        let productWords = (trustedAuthor && explicitReset && (lower.contains("astra users") || lower.contains("reset all propagated"))) || lower.contains("chatgpt") || lower.contains("codex") || lower.contains("usage limit") || lower.contains("weekly limit")
+        let promisedReset = trustedAuthor && lower.range(of: #"i promised a reset for (?:tuesday|today|tomorrow)"#, options: .regularExpression) != nil
+        let grantRollout = trustedAuthor && lower.range(of: #"we (?:are|will be) loading a banked reset into all accounts of our plus, pro and business users"#, options: .regularExpression) != nil
+        let productWords = (trustedAuthor && explicitReset && (lower.contains("astra users") || lower.contains("reset all propagated"))) ||
+            promisedReset || grantRollout || lower.contains("chatgpt") || lower.contains("codex") ||
+            lower.contains("usage limit") || lower.contains("weekly limit")
         guard resetWords && productWords else { return nil }
         let unrelatedResets = ["password reset", "reset password", "reset your password", "reset the password", "reset settings", "reset context", "factory reset"]
         guard !unrelatedResets.contains(where: lower.contains) else { return nil }
@@ -62,7 +66,7 @@ struct AnnouncementClassifier {
             } else {
                 precision = .unknown
             }
-            state = expiresAt.map { $0 <= fetchedAt } == true ? .expired : .available
+            state = expiresAt.map { $0 <= fetchedAt } == true ? .expired : (grantRollout ? .unresolved : .available)
         } else {
             timeMeaning = .automaticReset
             switch resolution {
@@ -76,7 +80,7 @@ struct AnnouncementClassifier {
                 precision = .unknown
             }
         }
-        let kind: ResetKind = isGrant ? .bankedResetGrant : (isForwardLooking && target == nil && !isCancelled && !isUncertain ? .lead : .automaticReset)
+        let kind: ResetKind = isGrant ? .bankedResetGrant : ((isForwardLooking || promisedReset) && target == nil && !isCancelled && !isUncertain ? .lead : .automaticReset)
         let hash = SHA256.hash(data: Data(combined.utf8)).map { String(format: "%02x", $0) }.joined()
         let canonical = canonicalID(item, originalURL: originalURL)
         let evidence = Evidence(
@@ -94,7 +98,7 @@ struct AnnouncementClassifier {
             revision: 1,
             kind: kind,
             timeMeaning: timeMeaning,
-            confirmedAnnouncement: trustedAuthor && explicitReset && !isUncertain && !isCancelled,
+            confirmedAnnouncement: trustedAuthor && (explicitReset || promisedReset || grantRollout) && !isUncertain && !isCancelled,
             state: state,
             precision: precision,
             title: isGrant ? "发现重置机会" : "额度重置预告",
@@ -103,8 +107,8 @@ struct AnnouncementClassifier {
             windowStart: windowStart,
             windowEnd: nil,
             expiresAt: expiresAt,
-            products: lower.contains("chatgpt work") ? ["chatgpt-work"] : (lower.contains("codex") ? ["codex"] : (trustedAuthor && explicitReset ? ["astra"] : ["chatgpt"])),
-            audience: (isGrant && lower.contains("affected") && (lower.contains("not fully applying") || lower.contains("failed") || lower.contains("affected time window"))) ? "affected-reset-users" : lower.contains("all users") ? "all" : ((isGrant && lower.contains("some ")) || lower.contains("some users") || lower.contains("500k") ? "partial" : "unknown"),
+            products: lower.contains("chatgpt work") ? ["chatgpt-work"] : (lower.contains("codex") ? ["codex"] : (promisedReset || grantRollout ? ["unspecified"] : (trustedAuthor && explicitReset ? ["astra"] : ["chatgpt"]))),
+            audience: grantRollout ? "paid-plans" : ((isGrant && lower.contains("affected") && (lower.contains("not fully applying") || lower.contains("failed") || lower.contains("affected time window"))) ? "affected-reset-users" : lower.contains("all users") ? "all" : ((isGrant && lower.contains("some ")) || lower.contains("some users") || lower.contains("500k") ? "partial" : "unknown")),
             evidence: [evidence],
             firstSeenAt: fetchedAt,
             updatedAt: fetchedAt

@@ -1,5 +1,15 @@
 # 版本记录 · Changelog
 
+## 0.2.3 — 2026-09-23
+
+- 修复 GPT-6 Sol 发布时，Tibo 原帖未写 Codex／ChatGPT 导致的手动重置机会漏报。
+- 周二明确承诺作为时间、类型待定的预告提醒；向 Plus／Pro／Business 发放中的手动机会提醒但不宣称已到账。
+- 对真实公告回放、跨来源合并和重复提醒增加回归测试。
+
+- Fixed the missed Sol launch banked-reset announcement when the original post omitted Codex/ChatGPT keywords.
+- Trusted Tuesday promises alert with time/type pending; banked-reset rollouts name eligible plans without claiming delivery is complete.
+- Added regression coverage for real announcements, source merging, and duplicate alerts.
+
 ## 0.2.2 — 2026-09-13
 
 - 新增公开 JSON 来源，改进确定预告的识别；时间不明确时提醒但不猜测倒计时。

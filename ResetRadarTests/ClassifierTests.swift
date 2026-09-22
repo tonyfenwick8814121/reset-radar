@@ -101,6 +101,37 @@ final class ClassifierTests: XCTestCase {
         XCTAssertThrowsError(try FeedClient.parsePublicFeed(Data("{}".utf8)))
     }
 
+    @MainActor
+    func testSolLaunchBankedResetIsAQualifiedRolloutAlert() throws {
+        let published = ISO8601DateFormatter().date(from: "2026-09-22T18:23:37Z")!
+        let body = "GPT-6 Sol and Luna are out. We are loading a banked reset into all accounts of our Plus, Pro and Business users."
+        let item = FeedItem(id: "2102463847714247142", title: "", body: body,
+                            url: URL(string: "https://x.com/thsottiaux/status/2102463847714247142"), publishedAt: published)
+        let event = try XCTUnwrap(classifier.classify(item, source: source("codex-reset-json"), fetchedAt: published.addingTimeInterval(60)))
+        XCTAssertEqual(event.kind, .bankedResetGrant)
+        XCTAssertEqual(event.state, .unresolved)
+        XCTAssertEqual(event.audience, "paid-plans")
+        XCTAssertNil(event.targetAt)
+        XCTAssertTrue(MonitorModel().isActionable(event, now: published.addingTimeInterval(60)))
+    }
+
+    @MainActor
+    func testTrustedTuesdayPromiseAlertsWithoutPretendingItIsAGrant() throws {
+        let published = ISO8601DateFormatter().date(from: "2026-09-22T04:31:32Z")!
+        let item = FeedItem(id: "2102254445082116335", title: "",
+                            body: "We are almost Tuesday and I promised a reset for Tuesday. Among some other things. See you soon.",
+                            url: URL(string: "https://x.com/thsottiaux/status/2102254445082116335"), publishedAt: published)
+        let event = try XCTUnwrap(classifier.classify(item, source: source("codex-reset-json"), fetchedAt: published.addingTimeInterval(60)))
+        XCTAssertEqual(event.kind, .lead)
+        XCTAssertEqual(event.state, .unresolved)
+        XCTAssertNil(event.targetAt)
+        XCTAssertTrue(MonitorModel().isActionable(event, now: published.addingTimeInterval(60)))
+
+        let stranger = FeedItem(id: "stranger", title: "", body: item.body,
+                                url: URL(string: "https://x.com/someone-else/status/123"), publishedAt: published)
+        XCTAssertNil(classifier.classify(stranger, source: source("codex-reset-json"), fetchedAt: published.addingTimeInterval(60)))
+    }
+
     private func source(_ id: String) -> FeedSource {
         FeedSource(id: id, name: id, url: URL(string: "https://example.com/feed")!, kind: .communityFeed, interval: 300)
     }

@@ -58,6 +58,12 @@ struct MiniView: View {
 
     private var targetText: String {
         guard let target = model.activeEvent?.countdownAt else {
+            if model.activeEvent?.kind == .bankedResetGrant {
+                return model.preferences.locale == .zhHans ? "请在账号内核对" : "Check your account"
+            }
+            if model.activeEvent?.kind == .lead {
+                return model.preferences.locale == .zhHans ? "时间与类型待确认" : "Time and type pending"
+            }
             return Copy.text(.monitoring, model.preferences.locale)
         }
         let prefix = model.activeEvent?.kind == .bankedResetGrant
@@ -70,6 +76,7 @@ struct MiniView: View {
         guard let event = model.activeEvent else { return Copy.text(.noAnnouncement, model.preferences.locale) }
         if event.kind == .bankedResetGrant {
             if event.audience == "affected-reset-users" { return model.preferences.locale == .zhHans ? "重置补偿 · 请核对资格" : "Compensation · Check eligibility" }
+            if event.state == .unresolved { return model.preferences.locale == .zhHans ? "手动重置机会发放中" : "Banked reset rolling out" }
             return model.preferences.locale == .zhHans ? "手动重置机会" : "Manual reset opportunity"
         }
         if event.state == .dueUnconfirmed || event.targetAt.map({ $0 <= Date() }) == true {

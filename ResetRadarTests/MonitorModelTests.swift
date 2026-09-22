@@ -191,6 +191,31 @@ final class MonitorModelTests: XCTestCase {
         XCTAssertNil(model.activeEvent)
     }
 
+    func testTuesdayPromiseAndBankedRolloutProduceOneDiscovery() async {
+        MonitorURLProtocol.mode = .solRollout
+        let model = makeModel()
+        var discoveries: [ResetEvent] = []
+        model.onNewActionableEvent = { discoveries.append($0) }
+        await model.refresh()
+        await model.refresh()
+        XCTAssertEqual(discoveries.count, 1)
+        XCTAssertEqual(discoveries.first?.kind, .bankedResetGrant)
+        XCTAssertEqual(discoveries.first?.state, .unresolved)
+        XCTAssertEqual(model.activeEvent?.audience, "paid-plans")
+        XCTAssertEqual(model.events.filter { $0.kind == .lead && $0.confirmedAnnouncement }.count, 1)
+    }
+
+    func testTuesdayPromiseAloneAlertsOnce() async {
+        MonitorURLProtocol.mode = .tuesdayPromise
+        let model = makeModel()
+        var discoveries = 0
+        model.onNewActionableEvent = { _ in discoveries += 1 }
+        await model.refresh()
+        await model.refresh()
+        XCTAssertEqual(discoveries, 1)
+        XCTAssertEqual(model.activeEvent?.kind, .lead)
+    }
+
     func testIntervalAndPinDefaultsMigrateAndCooldownSurvivesChanges() async throws {
         let prefs = try JSONDecoder().decode(UserPreferences.self, from: Data("{}".utf8))
         XCTAssertEqual(prefs.checkIntervalMinutes, 10)
@@ -229,7 +254,7 @@ actor RecordingScheduler: ReminderScheduling {
 }
 
 private final class MonitorURLProtocol: URLProtocol {
-    enum Mode { case confirmed, confirmedComplete, empty, grant, rateLimit, serverError, complete, lead, cancelled, automatic, revised, mixed, expiredGrant, futureGrant }
+    enum Mode { case confirmed, confirmedComplete, solRollout, tuesdayPromise, empty, grant, rateLimit, serverError, complete, lead, cancelled, automatic, revised, mixed, expiredGrant, futureGrant }
     static var mode: Mode = .empty
     static var requestCount = 0
     static let futureTarget = Date().addingTimeInterval(7200)
@@ -274,6 +299,12 @@ private final class MonitorURLProtocol: URLProtocol {
                     tweets.append(["id": "200", "url": "https://x.com/thsottiaux/status/200", "text": "Reset all propagated. Sweet dreams.", "at": ISO8601DateFormatter().string(from: Date())])
                 }
                 tweets.append(["id": "100", "url": "https://x.com/thsottiaux/status/100", "text": "Hi Astra users. A reset is also landing by midnight today.", "at": ISO8601DateFormatter().string(from: Date().addingTimeInterval(-60))])
+            }
+            if Self.mode == .solRollout || Self.mode == .tuesdayPromise {
+                tweets.append(["id": "300", "url": "https://x.com/thsottiaux/status/300", "text": "We are almost Tuesday and I promised a reset for Tuesday. See you soon.", "at": ISO8601DateFormatter().string(from: Date().addingTimeInterval(-120))])
+                if Self.mode == .solRollout {
+                    tweets.append(["id": "301", "url": "https://x.com/thsottiaux/status/301", "text": "GPT-6 Sol and Luna are out. We are loading a banked reset into all accounts of our Plus, Pro and Business users.", "at": ISO8601DateFormatter().string(from: Date().addingTimeInterval(-60))])
+                }
             }
             client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: ["stale": false, "tweets": tweets]))
         } else {
