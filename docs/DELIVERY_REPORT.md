@@ -18,7 +18,7 @@
 - 本机安装：`/Applications/Reset Radar.app`
 - Apple Silicon 预览包：`dist/Reset-Radar-0.2.0-preview-arm64.zip`
 - 校验文件：`dist/Reset-Radar-0.2.0-preview-arm64.zip.sha256`
-- 公开源码：[tonyfenwick8814121/reset-radar](https://github.com/tonyfenwick8814121/reset-radar)
+- 公开源码：[tonyfenwick8814121/reset-radar-for-ChatGPT-Codex](https://github.com/tonyfenwick8814121/reset-radar-for-ChatGPT-Codex)
 
 ## 仍需外部条件或长时间样本
 
